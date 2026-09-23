@@ -274,7 +274,9 @@ pub fn analyse(p: &Profile, freq_mhz: f64, params: &Params) -> Analysis {
         horizon = horizon.max(elev);
     }
     let takeoff = ((hb - ha) / d - d / curve).atan().to_degrees();
-    let arrival = ((ha - hb) / d - d / curve).atan().to_degrees();
+    let ground: Vec<f64> = p.samples.iter().map(|s| s.ground).collect();
+    let arrival =
+        arrival_angle(&ground, d / (ground.len() - 1) as f64, p.a.height_agl, p.b.height_agl, p.k);
     let mut obstacles = Vec::new();
     let floor = p.samples.iter().map(|s| s.ground).fold(f64::INFINITY, f64::min);
     let diffraction = deygout(p, lam, 0, p.samples.len() - 1, ha, hb, 1, &mut obstacles)
@@ -312,6 +314,17 @@ pub fn analyse(p: &Profile, freq_mhz: f64, params: &Params) -> Analysis {
 }
 
 pub const ITM_CEILING: f64 = 3000.0;
+
+pub fn arrival_angle(ground: &[f64], step: f64, h_a: f64, h_b: f64, k: f64) -> f64 {
+    let n = ground.len() - 1;
+    let curve = 2.0 * k * EARTH_RADIUS;
+    let rx = ground[n] + h_b;
+    let angle = |j: usize, top: f64| {
+        let d = (n - j) as f64 * step;
+        ((top - rx) / d - d / curve).atan()
+    };
+    (1..n).map(|j| angle(j, ground[j])).fold(angle(0, ground[0] + h_a), f64::max).to_degrees()
+}
 
 pub fn path_loss(
     ground: &[f64],
@@ -425,6 +438,17 @@ mod tests {
             beyond > fspl_far + 10.0,
             "past the {horizon:.0} km horizon: {beyond} vs {fspl_far}"
         );
+    }
+
+    #[test]
+    fn arrival_looks_up_at_the_last_ridge() {
+        let mut g = vec![0.0; 101];
+        g[90] = 50.0;
+        let a = arrival_angle(&g, 100.0, 10.0, 2.0, 4.0 / 3.0);
+        let ridge = ((50.0 - 2.0) / 1000.0f64).atan().to_degrees();
+        assert!((a - ridge).abs() < 0.01, "{a} vs {ridge}");
+        let open = arrival_angle(&[0.0; 101], 100.0, 100.0, 2.0, 4.0 / 3.0);
+        assert!(open > 0.0 && open < 1.0, "{open}");
     }
 
     #[test]

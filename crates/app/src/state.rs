@@ -6,8 +6,8 @@ fn file() -> Option<PathBuf> {
     Some(dirs::config_dir()?.join("antenna-toolbox").join("state.txt"))
 }
 
-pub fn pattern_file() -> Option<PathBuf> {
-    Some(dirs::config_dir()?.join("antenna-toolbox").join("pattern.txt"))
+fn leak(s: String) -> &'static str {
+    Box::leak(s.into_boxed_str())
 }
 
 pub fn snapshot(app: &App) -> BTreeMap<&'static str, String> {
@@ -41,9 +41,12 @@ pub fn snapshot(app: &App) -> BTreeMap<&'static str, String> {
     m.insert("itm_time", p.itm.time.to_string());
     m.insert("itm_situation", p.itm.situation.to_string());
     m.insert("radius_km", p.radius_km.to_string());
-    m.insert("heading", p.mount.heading.to_string());
-    m.insert("tilt", p.mount.tilt.to_string());
-    m.insert("roll", p.mount.roll.to_string());
+    for (tag, slot) in [("", &p.site_pattern), ("far_", &p.far_pattern)] {
+        m.insert(leak(format!("{tag}heading")), slot.mount.heading.to_string());
+        m.insert(leak(format!("{tag}tilt")), slot.mount.tilt.to_string());
+        m.insert(leak(format!("{tag}roll")), slot.mount.roll.to_string());
+        m.insert(leak(format!("{tag}aim")), slot.aim.to_string());
+    }
     m.insert("vna_points", v.points.to_string());
     m.insert("vna_target", v.target.to_string());
     m.insert("vna_z0", v.z0.to_string());
@@ -108,14 +111,14 @@ pub fn load(app: &mut App) {
     num("itm_time", &mut p.itm.time);
     num("itm_situation", &mut p.itm.situation);
     num("radius_km", &mut p.radius_km);
-    num("heading", &mut p.mount.heading);
-    num("tilt", &mut p.mount.tilt);
-    num("roll", &mut p.mount.roll);
-    if let Some(pat) = pattern_file()
-        .and_then(|f| std::fs::read_to_string(f).ok())
-        .and_then(|t| antenna_terrain::pattern::Pattern::from_text(&t).ok())
-    {
-        p.pattern = Some(std::sync::Arc::new(pat));
+    for (tag, slot) in [("", &mut p.site_pattern), ("far_", &mut p.far_pattern)] {
+        num(&format!("{tag}heading"), &mut slot.mount.heading);
+        num(&format!("{tag}tilt"), &mut slot.mount.tilt);
+        num(&format!("{tag}roll"), &mut slot.mount.roll);
+        if let Some(v) = m.get(format!("{tag}aim").as_str()).and_then(|v| v.parse().ok()) {
+            slot.aim = v;
+        }
+        slot.restore();
     }
     if let Some(c) = m
         .get("itm_climate")

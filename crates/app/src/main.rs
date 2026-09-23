@@ -5,6 +5,7 @@ mod drawing;
 mod map;
 mod path;
 mod rich;
+mod slot;
 mod state;
 mod traces;
 mod view3d;
@@ -69,10 +70,12 @@ impl eframe::App for App {
         self.design.poll(&ctx);
         self.vna.poll();
         self.path.poll(&ctx);
-        if self.path.take_design_request() {
-            match self.design.pattern_snapshot() {
-                Ok(p) => self.path.set_pattern(p),
-                Err(e) => self.path.pattern_failed(e),
+        for slot in [&mut self.path.site_pattern, &mut self.path.far_pattern] {
+            if slot.take_design_request() {
+                match self.design.pattern_snapshot() {
+                    Ok(p) => slot.set(p),
+                    Err(e) => slot.failed(e),
+                }
             }
         }
         let now = format!("{:?}", state::snapshot(self));
@@ -232,8 +235,9 @@ mod tests {
     #[test]
     #[ignore = "renders a coverage map to target/shots, needs the terrain tiles"]
     fn render_coverage() {
+        let tall = std::env::var("SHOT_H").ok().and_then(|v| v.parse().ok()).unwrap_or(1000.0);
         let mut h =
-            Harness::builder().with_size(egui::vec2(1400.0, 1000.0)).wgpu().build_eframe(|cc| {
+            Harness::builder().with_size(egui::vec2(1400.0, tall)).wgpu().build_eframe(|cc| {
                 egui_bench::install(&cc.egui_ctx);
                 App::new()
             });
@@ -243,8 +247,12 @@ mod tests {
             h.state_mut().design.design = antenna_designs::by_id(&id);
             settle(&mut h, 3000);
             let p = h.state_mut().design.pattern_snapshot().unwrap();
-            h.state_mut().path.set_pattern(p);
-            h.state_mut().path.mount.heading = 250.0;
+            h.state_mut().path.site_pattern.set(p);
+            h.state_mut().path.site_pattern.mount.heading = 250.0;
+            if std::env::var("SHOT_FAR").is_ok() {
+                let p = h.state_mut().design.pattern_snapshot().unwrap();
+                h.state_mut().path.far_pattern.set(p);
+            }
         }
         h.state_mut().tab = Tab::Path;
         if std::env::var("SHOT_PLANE").is_ok() {

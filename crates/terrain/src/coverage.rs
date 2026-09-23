@@ -1,6 +1,6 @@
 use crate::dem::Dem;
 use crate::itm::Params;
-use crate::path::{EARTH_RADIUS, LatLon, path_loss};
+use crate::path::{EARTH_RADIUS, LatLon, arrival_angle, path_loss};
 use rayon::prelude::*;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
@@ -34,6 +34,7 @@ pub struct Coverage {
     pub loss: Vec<f32>,
     pub ground: Vec<f32>,
     pub takeoff: Vec<f32>,
+    pub arrival: Vec<f32>,
 }
 
 impl Coverage {
@@ -54,6 +55,10 @@ impl Coverage {
 
     pub fn takeoff_at(&self, p: LatLon) -> Option<f32> {
         self.index(p).map(|i| self.takeoff[i])
+    }
+
+    pub fn arrival_at(&self, p: LatLon) -> Option<f32> {
+        self.index(p).map(|i| self.arrival[i])
     }
 }
 
@@ -90,11 +95,11 @@ pub fn compute_with(
     let bins = samples / spec.stride;
     let bin = spec.step * spec.stride as f64;
     let done = AtomicUsize::new(0);
-    let rows: Vec<(Vec<f32>, Vec<f32>, Vec<f32>)> = (0..spec.radials)
+    let rows: Vec<[Vec<f32>; 4]> = (0..spec.radials)
         .into_par_iter()
         .map(|r| {
             if cancel.load(Ordering::Relaxed) {
-                return (vec![f32::NAN; bins], vec![0.0; bins], vec![0.0; bins]);
+                return [vec![f32::NAN; bins], vec![0.0; bins], vec![0.0; bins], vec![0.0; bins]];
             }
             let bearing = r as f64 * 360.0 / spec.radials as f64;
             let ground: Vec<f64> = (0..=samples)
@@ -106,6 +111,7 @@ pub fn compute_with(
             let mut loss = Vec::with_capacity(bins);
             let mut height = Vec::with_capacity(bins);
             let mut takeoff = Vec::with_capacity(bins);
+            let mut arrival = Vec::with_capacity(bins);
             let curve = 2.0 * (4.0 / 3.0) * EARTH_RADIUS;
             let tx_abs = ground[0] + spec.tx_agl;
             let angle = |j: usize, top: f64| {
@@ -140,12 +146,17 @@ pub fn compute_with(
                 };
                 loss.push(l as f32);
                 takeoff.push(angle(i, ground[i] + rx).max(horizon).to_degrees() as f32);
+                arrival.push(if i < 2 {
+                    0.0
+                } else {
+                    arrival_angle(&ground[..=i], spec.step, spec.tx_agl, rx, 4.0 / 3.0) as f32
+                });
             }
             let k = done.fetch_add(1, Ordering::Relaxed) + 1;
             if k.is_multiple_of(16) {
                 progress(k as f32 / spec.radials as f32);
             }
-            (loss, height, takeoff)
+            [loss, height, takeoff, arrival]
         })
         .collect();
     if cancel.load(Ordering::Relaxed) {
@@ -154,12 +165,14 @@ pub fn compute_with(
     let mut loss = Vec::with_capacity(spec.radials * bins);
     let mut ground = Vec::with_capacity(spec.radials * bins);
     let mut takeoff = Vec::with_capacity(spec.radials * bins);
-    for (l, g, t) in rows {
+    let mut arrival = Vec::with_capacity(spec.radials * bins);
+    for [l, g, t, a] in rows {
         loss.extend(l);
         ground.extend(g);
         takeoff.extend(t);
+        arrival.extend(a);
     }
-    Some(Coverage { spec: spec.clone(), bins, bin, loss, ground, takeoff })
+    Some(Coverage { spec: spec.clone(), bins, bin, loss, ground, takeoff, arrival })
 }
 
 #[cfg(test)]
