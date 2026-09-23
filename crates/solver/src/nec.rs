@@ -71,7 +71,10 @@ pub fn export(
         ports.push((n.0, Port::Net(i, 0)));
         ports.push((n.1, Port::Net(i, 1)));
     }
-    let mut placed = vec![false; ports.len()];
+    let lead: Vec<usize> = (0..ports.len())
+        .map(|i| (0..i).find(|&j| length(sub(ports[j].0, ports[i].0)) < 1e-6).unwrap_or(i))
+        .collect();
+    let mut placed: Vec<bool> = lead.iter().enumerate().map(|(i, &l)| l != i).collect();
     let mut wires: Vec<Wire> = Vec::new();
     let mut tagged: Vec<(usize, Port)> = Vec::new();
     for line in &geo.lines {
@@ -109,7 +112,9 @@ pub fn export(
                     let n = ((before / seg).round() as usize).max(1);
                     wires.push(Wire { a: start, b: f0, segments: n, radius, props: line.props });
                 }
-                tagged.push((wires.len() + 1, ports[i].1));
+                for (j, _) in lead.iter().enumerate().filter(|(_, l)| **l == i) {
+                    tagged.push((wires.len() + 1, ports[j].1));
+                }
                 wires.push(Wire { a: f0, b: f1, segments: 1, radius, props: line.props });
                 start = f1;
             }
@@ -120,7 +125,7 @@ pub fn export(
             }
         }
     }
-    if !placed[0] {
+    if !tagged.iter().any(|t| matches!(t.1, Port::Feed)) {
         return Err(ExportError::FeedOffWire);
     }
 
@@ -574,6 +579,42 @@ mod tests {
             .sum();
         assert!((span - 500.0).abs() < 1e-3);
         assert!(back.warnings.is_empty(), "{:?}", back.warnings);
+    }
+
+    #[test]
+    fn a_load_and_a_line_on_the_feed_share_its_segment() {
+        let mut geo = WireGeometry::new(
+            vec![
+                vec![[-250.0, 0.0, 0.0], [250.0, 0.0, 0.0]],
+                vec![[-260.0, 0.0, -100.0], [260.0, 0.0, -100.0]],
+            ],
+            [0.0; 3],
+        );
+        geo.loads.push(([0.0; 3], Load::Series { r: 0.0, l: 1e-7, c: 0.0 }));
+        geo.networks.push((
+            [0.0; 3],
+            [0.0, 0.0, -100.0],
+            Network::Line {
+                z0: 50.0,
+                length: 100.0,
+                crossed: true,
+                shunt: [C64::new(0.0, 0.0); 2],
+            },
+        ));
+        let deck = export(&geo, 300.0, 1.0, "pair").unwrap();
+        let tag = |card: &str| {
+            deck.lines()
+                .find(|l| l.starts_with(card))
+                .unwrap()
+                .split_whitespace()
+                .nth(2)
+                .unwrap()
+                .to_string()
+        };
+        assert_eq!(tag("EX"), tag("LD 0"));
+        assert!(deck.lines().any(|l| l.starts_with(&format!("TL {} 1", tag("EX")))), "{deck}");
+        let back = import(&deck).unwrap();
+        assert_eq!((back.geo.loads.len(), back.geo.networks.len()), (1, 1));
     }
 
     #[test]
