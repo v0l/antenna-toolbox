@@ -6,6 +6,7 @@ pub enum FeedDetail {
     Vertical { top: String, bottom: String, extra: Option<String> },
     Plate,
     GroundPlane,
+    Transformer,
 }
 
 pub fn inline(left: &str, right: &str, extra: Option<&str>) -> FeedDetail {
@@ -67,6 +68,18 @@ impl FeedDetail {
                        with one half bolted to a large piece of metal. Put an ohmmeter across the \
                        SMA and you will read a short; that is the expected result, not a fault. \
                        Both diamonds still radiate."
+                    .into(),
+            },
+            FeedDetail::Transformer => Block {
+                title: "Feed detail: step-up transformer in a small box, viewed from the front",
+                drawing: Some(transformer_drawing()),
+                note: "Wind it as an autotransformer on a type 43 toroid: one continuous winding \
+                       of 14 turns, tapped 2 turns up from the cold end. The coax centre pin goes \
+                       to the tap, the braid to the cold end, and the radiator to the top of the \
+                       winding. The counterpoise joins the braid at the cold end; if you use the \
+                       coax braid as the counterpoise instead, fit a choke a short way down the \
+                       cable so its length is defined. Many builds add 100 to 150 pF across the \
+                       2 turn primary to flatten the SWR on the higher bands."
                     .into(),
             },
             FeedDetail::GroundPlane => Block {
@@ -147,6 +160,55 @@ fn vertical_drawing(top: &str, bottom: &str) -> Drawing {
     d.text(344.0, 68.0, "centre pin, hot", GOLD, 11.0);
     d.line(236.0, 148.0, 340.0, 184.0, GREY, 1.0);
     d.text(344.0, 186.0, "body / flange, shield", GREY, 11.0);
+    d
+}
+
+fn transformer_drawing() -> Drawing {
+    let mut d = Drawing::new(640.0, 280.0);
+    let (x, top, bottom) = (330.0, 60.0, 200.0);
+    d.rect(250.0, 40.0, 160.0, 180.0, Some(SLEEVE), Some(Stroke::new(METAL, 1.5)));
+    let turns = 14;
+    let pitch = (bottom - top) / turns as f64;
+    for i in 0..turns {
+        let y = bottom - (i as f64 + 0.5) * pitch;
+        d.arc(
+            x,
+            y,
+            12.0,
+            pitch / 2.0,
+            -std::f64::consts::FRAC_PI_2,
+            std::f64::consts::FRAC_PI_2,
+            Stroke::new(GOLD, 2.0),
+        );
+    }
+    d.line(x, top - pitch / 2.0, x, top, GOLD, 2.0);
+    d.line(x, bottom, x, bottom + 4.0, GOLD, 2.0);
+    let tap = bottom - 2.0 * pitch;
+    d.dot(x, tap, 3.4, GOLD);
+    d.dot(x, bottom + 4.0, 3.4, GREY);
+    lead(&mut d, &[(x, top - pitch / 2.0), (x, 50.0), (600.0, 50.0)], GOLD);
+    d.text_at(
+        600.0,
+        36.0,
+        "radiator, from the top of the winding",
+        GOLD,
+        12.0,
+        Anchor::End,
+        Face::Sans,
+    );
+    lead(&mut d, &[(x, bottom + 4.0), (40.0, bottom + 4.0)], GREY);
+    d.text(40.0, bottom - 8.0, "counterpoise, from the cold end", GREY, 12.0);
+    d.rect(262.0, 226.0, 40.0, 22.0, Some(BODY), Some(Stroke::new(METAL, 1.5)));
+    d.rect(272.0, 248.0, 20.0, 26.0, Some(HOLE), Some(Stroke::new(METAL, 1.5)));
+    lead(&mut d, &[(282.0, 226.0), (282.0, tap), (x, tap)], GOLD);
+    lead(&mut d, &[(296.0, 226.0), (296.0, bottom + 4.0)], GREY);
+    d.text_at(262.0, 262.0, "coax to radio", MUTED, 12.0, Anchor::End, Face::Sans);
+    d.line(x + 16.0, tap, 440.0, tap, GOLD, 1.0);
+    d.text(444.0, tap + 4.0, "tap, 2 turns up: centre pin", GOLD, 12.0);
+    d.line(x + 16.0, (top + tap) / 2.0, 440.0, (top + tap) / 2.0, MUTED, 1.0);
+    d.text(444.0, (top + tap) / 2.0 + 4.0, "14 turns in all, on a type 43 toroid", MUTED, 12.0);
+    d.line(300.0, bottom + 4.0, 440.0, bottom + 24.0, GREY, 1.0);
+    d.text(444.0, bottom + 28.0, "cold end: braid and counterpoise", GREY, 12.0);
     d
 }
 

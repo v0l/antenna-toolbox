@@ -39,6 +39,7 @@ pub enum MatchKind {
     Qwt,
     ChokeQwt,
     Balun4Qwt,
+    StepUp,
 }
 
 #[derive(Clone, Debug)]
@@ -57,6 +58,40 @@ pub struct MatchPlan {
     pub line: Option<Line>,
     pub caveat: Option<&'static str>,
     use4: bool,
+    step_up: f64,
+}
+
+const WINDINGS: [(u32, u32); 5] = [(2, 14), (2, 12), (2, 10), (2, 8), (1, 3)];
+
+fn step_up_plan(z: C64, z0: f64) -> MatchPlan {
+    let (p, n) = WINDINGS
+        .iter()
+        .copied()
+        .min_by(|a, b| {
+            let off = |w: (u32, u32)| (z.re / (w.1 as f64 / w.0 as f64).powi(2) / z0).ln().abs();
+            off(*a).total_cmp(&off(*b))
+        })
+        .unwrap();
+    let ratio = (n as f64 / p as f64).powi(2);
+    MatchPlan {
+        kind: MatchKind::StepUp,
+        headline: "Step-up transformer at the end of the wire",
+        balun: format!(
+            "The end of the wire is {:.0} Ω, so a {ratio:.0}:1 autotransformer suits it: {n} turns \
+             in all on a type 43 toroid, tapped {p} turns up from the cold end. Coax pin to the \
+             tap, braid and counterpoise to the cold end, radiator to the top. An \
+             autotransformer does not isolate the coax from the antenna, so keep a choke on the \
+             coax.",
+            z.re
+        ),
+        line: None,
+        caveat: (z.im.abs() > 0.3 * z.re).then_some(
+            "There is real reactance left at the end, so trim the radiator until it goes away; \
+             a transformer only scales it.",
+        ),
+        use4: false,
+        step_up: ratio,
+    }
 }
 
 fn through_line(z: C64, zt: f64, f: f64, f0: f64) -> C64 {
@@ -112,6 +147,9 @@ fn choke_advice(lam_mm: f64) -> String {
 }
 
 pub fn plan_match(id: &str, z: C64, lam_mm: f64, z0: f64) -> MatchPlan {
+    if id == "efhw" {
+        return step_up_plan(z, z0);
+    }
     let balanced = is_balanced(id);
     let reactive = z.im.abs() > 0.3 * z.re.max(10.0);
     let use4 = balanced && (z.re / 4.0 - z0).abs() < (z.re - z0).abs() && z.re > 2.0 * z0;
@@ -186,13 +224,14 @@ pub fn plan_match(id: &str, z: C64, lam_mm: f64, z0: f64) -> MatchPlan {
         MatchKind::Qwt => "Quarter-wave transformer",
         MatchKind::ChokeQwt => "1:1 choke and a quarter-wave transformer",
         MatchKind::Balun4Qwt => "4:1 balun and a quarter-wave transformer",
+        MatchKind::StepUp => "Step-up transformer",
     };
-    MatchPlan { kind, headline, balun, line, caveat, use4 }
+    MatchPlan { kind, headline, balun, line, caveat, use4, step_up: 1.0 }
 }
 
 impl MatchPlan {
     pub fn apply(&self, z: C64, f: f64, f0: f64) -> C64 {
-        let zz = if self.use4 { z / 4.0 } else { z };
+        let zz = if self.use4 { z / 4.0 } else { z } / self.step_up;
         match &self.line {
             Some(l) => through_line(zz, l.pick.0, f, f0),
             None => zz,

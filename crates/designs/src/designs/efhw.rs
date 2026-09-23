@@ -1,5 +1,5 @@
 use crate::draw::{Anchor, GOLD, GREEN, SILVER};
-use crate::feed_detail::inline;
+use crate::feed_detail::FeedDetail;
 use crate::sketch::Sketch;
 use crate::{Build, Ctx, Design, Group, Output, Scene, row, total, wire};
 use antenna_solver::geometry::{Geometry, WireGeometry};
@@ -54,14 +54,7 @@ fn compute(c: &Ctx) -> Output {
             .note((0.0, -0.1 * len), "step-up transformer", GREEN, Anchor::Middle)
             .caption("broadside to the wire, nulls off the ends", GREEN)
             .render(),
-        feed: inline(
-            "counterpoise, on the transformer's cold side",
-            "radiator, on the transformer's hot end",
-            Some(
-                "The coax goes to the transformer's primary. The radiator connects to the far \
-                 end of the secondary.",
-            ),
-        ),
+        feed: FeedDetail::Transformer,
         notes: "**A half-wave wire fed at one end.** Popular for portable and HF work because \
                 there is only one support point near the radio and the wire can go up at any \
                 angle. At the end of a half wave the voltage is high and the current low, so \
@@ -71,11 +64,11 @@ fn compute(c: &Ctx) -> Output {
                 which wants 25:1 instead.\n\n\
                 **The counterpoise is not optional.** Something has to carry the return \
                 current. A short wire or, more often, the outside of the coax does it. The \
-                model uses a 0.1 λ wire, long enough that the end resonates; with coax instead, put a choke further down so the \
-                counterpoise length is defined.\n\nThe impedance at the end is very sensitive to \
-                length, so the SWR on 50 Ω shown here is the raw end impedance before the \
-                transformer. The matching section's advice is for a centre-fed antenna and \
-                does not apply."
+                model uses a 0.1 λ wire, long enough that the end resonates; with coax \
+                instead, put a choke further down so the counterpoise length is defined.\n\nThe impedance at the end is very sensitive to \
+                length, so the SWR on 50 Ω at the top is the raw end impedance before the \
+                transformer. The matching section picks the ratio from the solved end \
+                impedance."
             .into(),
         cut: None,
     }

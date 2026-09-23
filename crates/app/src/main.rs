@@ -186,8 +186,9 @@ mod tests {
     #[test]
     #[ignore = "renders the app to target/shots for a visual check"]
     fn render_every_tab() {
+        let tall = std::env::var("SHOT_H").ok().and_then(|v| v.parse().ok()).unwrap_or(1000.0);
         let mut h =
-            Harness::builder().with_size(egui::vec2(1400.0, 1000.0)).wgpu().build_eframe(|cc| {
+            Harness::builder().with_size(egui::vec2(1400.0, tall)).wgpu().build_eframe(|cc| {
                 egui_bench::install(&cc.egui_ctx);
                 App::new()
             });

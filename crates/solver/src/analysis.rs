@@ -53,21 +53,26 @@ fn beamwidth(cut: &Cut, centre: usize) -> Option<f64> {
 pub fn analyse(r: &SolveResult, up: Vec3) -> Option<Metrics> {
     let pattern = r.pattern.as_ref()?;
     let gain = |d: Vec3| r.gain_dbi(d).unwrap_or(f64::NEG_INFINITY);
-    let mut best = (f64::NEG_INFINITY, [0.0, 0.0, 1.0]);
     let u = normalise(up);
     let (_, f0, s0) = frame(u, [1.0, 0.0, 0.0]);
-    for i in 0..=90 {
-        let el = (i as f64 * 2.0 - 90.0).to_radians();
-        for j in 0..180 {
-            let az = (j as f64 * 2.0).to_radians();
-            let d = [0, 1, 2]
-                .map(|k| el.cos() * (az.cos() * f0[k] + az.sin() * s0[k]) + el.sin() * u[k]);
-            let v = pattern(d);
-            if v > best.0 {
-                best = (v, d);
-            }
-        }
-    }
+    let grid: Vec<(f64, Vec3, f64)> = (0..=90)
+        .flat_map(|i| {
+            let el = (i as f64 * 2.0 - 90.0).to_radians();
+            (0..180).map(move |j| {
+                let az = (j as f64 * 2.0).to_radians();
+                let d = [0, 1, 2]
+                    .map(|k| el.cos() * (az.cos() * f0[k] + az.sin() * s0[k]) + el.sin() * u[k]);
+                (el.abs(), d, pattern(d))
+            })
+        })
+        .collect();
+    let top = grid.iter().map(|g| g.2).fold(f64::NEG_INFINITY, f64::max);
+    let best = grid
+        .iter()
+        .filter(|g| g.2 >= top * 0.9977)
+        .min_by(|a, b| a.0.total_cmp(&b.0))
+        .map(|g| (g.2, g.1))
+        .unwrap_or((top, [0.0, 0.0, 1.0]));
     let peak_dir = best.1;
     let (u, f, s) = frame(u, peak_dir);
     let peak_elevation = dot(peak_dir, u).clamp(-1.0, 1.0).asin().to_degrees();
