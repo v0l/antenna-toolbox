@@ -1,6 +1,7 @@
 pub mod coverage;
 pub mod dem;
 pub mod itm;
+pub mod p528;
 pub mod path;
 pub mod pattern;
 

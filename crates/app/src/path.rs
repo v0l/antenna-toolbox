@@ -282,12 +282,13 @@ impl PathTab {
                     }
                 };
                 let height = |lat: f64, lon: f64| sampler.elevation(lat, lon);
+                let air = coverage::air_table(&spec, height(spec.site.lat, spec.site.lon).max(0.0));
                 let mut rows = Vec::with_capacity(spec.radials);
                 for r in 0..spec.radials {
                     if h.cancelled() {
                         return;
                     }
-                    rows.push(coverage::radial(&height, &spec, r));
+                    rows.push(coverage::radial(&height, &spec, r, air.as_ref()));
                     if r % 24 == 23 {
                         h.send(CovMsg::Progress(Stage::Radials(r as f32 / spec.radials as f32)));
                         crate::webserial::yield_now().await;
@@ -513,7 +514,7 @@ impl PathTab {
             row_help(
                 ui,
                 "measured",
-                "Above sea level for aircraft altitude, above the ground under it for a mast or a ship. Past 3 km Longley-Rice no longer applies, so the path is free space plus terrain and earth diffraction.",
+                "Above sea level for aircraft altitude, above the ground under it for a mast or a ship. Past 3 km Longley-Rice no longer applies, so the path uses ITU-R P.528, the aeronautical model, or terrain diffraction where the ground blocks more.",
                 |ui| {
                     choice(
                         ui,
@@ -982,7 +983,7 @@ impl PathTab {
                     match &an.itm {
                         Ok(r) => ("mode", r.mode.label().to_string(), TRACE),
                         Err(_) if an.airborne => {
-                            ("model", "free space + diffraction".to_string(), TRACE)
+                            ("model", "ITU-R P.528, aeronautical".to_string(), TRACE)
                         }
                         Err(e) => ("model", e.to_string(), FAULT),
                     },

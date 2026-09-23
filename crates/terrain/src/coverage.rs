@@ -1,6 +1,6 @@
 use crate::dem::Dem;
 use crate::itm::Params;
-use crate::path::{EARTH_RADIUS, LatLon, arrival_angle, path_loss};
+use crate::path::{AirTable, EARTH_RADIUS, ITM_CEILING, LatLon, arrival_angle, path_loss_with};
 use rayon::prelude::*;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
@@ -100,7 +100,21 @@ impl Grid {
 
 pub type Radial = [Vec<f32>; 4];
 
-pub fn radial(elevation: &(dyn Fn(f64, f64) -> f64 + Sync), spec: &Spec, r: usize) -> Radial {
+pub fn air_table(spec: &Spec, site_ground: f64) -> Option<AirTable> {
+    if spec.tx_agl <= ITM_CEILING && spec.rx_agl <= ITM_CEILING {
+        return None;
+    }
+    let tx = site_ground + spec.tx_agl;
+    let rx = if spec.rx_above_sea { spec.rx_agl } else { spec.rx_agl + site_ground };
+    AirTable::build(tx, rx, spec.freq_mhz, &spec.params, spec.radius / 1000.0)
+}
+
+pub fn radial(
+    elevation: &(dyn Fn(f64, f64) -> f64 + Sync),
+    spec: &Spec,
+    r: usize,
+    air: Option<&AirTable>,
+) -> Radial {
     let Grid { samples, bins, .. } = Grid::of(spec);
     let bearing = r as f64 * 360.0 / spec.radials as f64;
     let ground: Vec<f64> = (0..=samples)
@@ -132,7 +146,15 @@ pub fn radial(elevation: &(dyn Fn(f64, f64) -> f64 + Sync), spec: &Spec, r: usiz
         let l = if i < 2 {
             f64::NAN
         } else {
-            path_loss(&ground[..=i], spec.step, spec.tx_agl, rx, spec.freq_mhz, &spec.params)
+            path_loss_with(
+                &ground[..=i],
+                spec.step,
+                spec.tx_agl,
+                rx,
+                spec.freq_mhz,
+                &spec.params,
+                air,
+            )
         };
         loss.push(l as f32);
         takeoff.push(angle(i, ground[i] + rx).max(horizon).to_degrees() as f32);
@@ -167,6 +189,7 @@ pub fn compute_with(
     cancel: &AtomicBool,
 ) -> Option<Coverage> {
     let bins = Grid::of(spec).bins;
+    let air = air_table(spec, elevation(spec.site.lat, spec.site.lon).max(0.0));
     let done = AtomicUsize::new(0);
     let rows: Vec<Radial> = (0..spec.radials)
         .into_par_iter()
@@ -174,7 +197,7 @@ pub fn compute_with(
             if cancel.load(Ordering::Relaxed) {
                 return [vec![f32::NAN; bins], vec![0.0; bins], vec![0.0; bins], vec![0.0; bins]];
             }
-            let row = radial(elevation, spec, r);
+            let row = radial(elevation, spec, r, air.as_ref());
             let k = done.fetch_add(1, Ordering::Relaxed) + 1;
             if k.is_multiple_of(16) {
                 progress(k as f32 / spec.radials as f32);

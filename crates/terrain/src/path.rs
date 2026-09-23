@@ -1,5 +1,6 @@
 use crate::dem::Dem;
 use crate::itm::{self, Params};
+use crate::p528;
 
 pub const EARTH_RADIUS: f64 = 6_371_008.8;
 pub const C: f64 = 299_792_458.0;
@@ -294,7 +295,22 @@ pub fn analyse(p: &Profile, freq_mhz: f64, params: &Params) -> Analysis {
     );
     let fspl = 20.0 * (4.0 * std::f64::consts::PI * d / lam).log10();
     Analysis {
-        loss_db: itm.as_ref().map(|r| r.loss_db).unwrap_or(fspl + diffraction),
+        loss_db: match &itm {
+            Ok(r) => r.loss_db,
+            Err(itm::Error::TerminalHeight) => {
+                let (a, b) = (ha, hb);
+                p528::p528(
+                    d / 1000.0,
+                    a.min(b).max(1.5),
+                    a.max(b).max(1.5),
+                    freq_mhz,
+                    params.vertical,
+                    params.time,
+                )
+                .map_or(fspl + diffraction, |r| r.loss_db.max(fspl + diffraction))
+            }
+            Err(_) => fspl + diffraction,
+        },
         airborne: matches!(itm, Err(itm::Error::TerminalHeight)),
         itm,
         distance: d,
@@ -348,6 +364,18 @@ pub fn path_loss(
     freq_mhz: f64,
     params: &Params,
 ) -> f64 {
+    path_loss_with(ground, step, h_a, h_b, freq_mhz, params, None)
+}
+
+pub fn path_loss_with(
+    ground: &[f64],
+    step: f64,
+    h_a: f64,
+    h_b: f64,
+    freq_mhz: f64,
+    params: &Params,
+    air: Option<&AirTable>,
+) -> f64 {
     let params = &ground_constants(params, ground);
     if h_a <= ITM_CEILING
         && h_b <= ITM_CEILING
@@ -356,7 +384,66 @@ pub fn path_loss(
     {
         return r.loss_db;
     }
-    free_space_and_diffraction(ground, step, h_a, h_b, freq_mhz, 4.0 / 3.0)
+    let terrain = free_space_and_diffraction(ground, step, h_a, h_b, freq_mhz, 4.0 / 3.0);
+    let d_km = step * (ground.len() - 1) as f64 / 1000.0;
+    let smooth = match air {
+        Some(t) => t.at(d_km),
+        None => {
+            let (a, b) = (ground[0] + h_a, ground[ground.len() - 1] + h_b);
+            p528::p528(
+                d_km,
+                a.min(b).max(1.5),
+                a.max(b).max(1.5),
+                freq_mhz,
+                params.vertical,
+                params.time,
+            )
+            .map(|r| r.loss_db)
+            .ok()
+        }
+    };
+    smooth.map_or(terrain, |s| s.max(terrain))
+}
+
+pub struct AirTable {
+    step_km: f64,
+    loss: Vec<f64>,
+}
+
+impl AirTable {
+    pub fn build(
+        h_a: f64,
+        h_b: f64,
+        freq_mhz: f64,
+        params: &Params,
+        max_km: f64,
+    ) -> Option<AirTable> {
+        use rayon::prelude::*;
+        let model = p528::Model::new(
+            h_a.min(h_b).max(1.5),
+            h_a.max(h_b).max(1.5),
+            freq_mhz,
+            params.vertical,
+        )
+        .ok()?;
+        let step_km = (max_km / 1000.0).max(0.25);
+        let n = (max_km / step_km).ceil() as usize + 1;
+        let loss = (0..=n)
+            .into_par_iter()
+            .map(|i| {
+                model.loss(i as f64 * step_km, params.time).map(|r| r.loss_db).unwrap_or(f64::NAN)
+            })
+            .collect();
+        Some(AirTable { step_km, loss })
+    }
+
+    pub fn at(&self, d_km: f64) -> Option<f64> {
+        let x = d_km / self.step_km;
+        let i = (x.floor() as usize).min(self.loss.len().saturating_sub(2));
+        let t = (x - i as f64).clamp(0.0, 1.0);
+        let v = self.loss.get(i)? * (1.0 - t) + self.loss.get(i + 1)? * t;
+        v.is_finite().then_some(v)
+    }
 }
 
 pub fn free_space_and_diffraction(
