@@ -1,0 +1,12 @@
+[package]
+name = "antenna-solver"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+num-complex.workspace = true
+rayon.workspace = true
+wgpu.workspace = true
+pollster.workspace = true
+bytemuck.workspace = true

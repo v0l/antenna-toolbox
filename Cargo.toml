@@ -1,0 +1,32 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[workspace.dependencies]
+antenna-solver = { path = "crates/solver" }
+antenna-designs = { path = "crates/designs" }
+antenna-vna = { path = "crates/vna" }
+antenna-terrain = { path = "crates/terrain" }
+num-complex = "0.4"
+rayon = "1.11"
+wgpu = "29"
+pollster = "0.4"
+bytemuck = { version = "1.25", features = ["derive"] }
+serialport = "4.10"
+tiff = "0.11"
+ureq = "3"
+dirs = "6"
+egui = "0.35"
+eframe = { version = "0.35", default-features = false, features = ["default_fonts", "wgpu", "wayland", "x11"] }
+egui_bench = { git = "https://github.com/v0l/egui_bench" }
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.dev]
+opt-level = 1
