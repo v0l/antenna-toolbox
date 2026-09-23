@@ -92,7 +92,7 @@ impl Trace {
             return;
         };
         let (lo, hi) = match self.kind {
-            Kind::Swr => (1.0, hi.min(20.0).max(1.5)),
+            Kind::Swr => (1.0, hi.clamp(1.5, 20.0)),
             _ => (lo, hi.max(lo + 1e-6)),
         };
         let floor = match self.kind {

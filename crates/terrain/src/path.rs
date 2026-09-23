@@ -218,6 +218,7 @@ fn worst_edge(
         .max_by(|x, y| x.1.total_cmp(&y.1))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn deygout(
     p: &Profile,
     lam: f64,

@@ -77,6 +77,7 @@ impl Drawing {
         self.stroke_path(vec![p(x1, y1), p(x2, y2)], false, Stroke::new(colour, width as f32));
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn dashed(&mut self, x1: f64, y1: f64, x2: f64, y2: f64, colour: Rgba, on: f64, off: f64) {
         self.stroke_path(
             vec![p(x1, y1), p(x2, y2)],
@@ -126,6 +127,7 @@ impl Drawing {
         self.items.push(Item::Circle { c: p(cx, cy), r: r as f32, stroke, fill });
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn arc(&mut self, cx: f64, cy: f64, rx: f64, ry: f64, a0: f64, a1: f64, stroke: Stroke) {
         let n = ((a1 - a0).abs() * 24.0).ceil().max(8.0) as usize;
         let pts = (0..=n)
@@ -141,6 +143,7 @@ impl Drawing {
         self.text_at(x, y, text, colour, size, Anchor::Start, Face::Sans);
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn text_at(
         &mut self,
         x: f64,
@@ -185,6 +188,7 @@ impl Drawing {
         self.text_at(x, y, text, colour, size, anchor, Face::Mono);
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn dim(
         &mut self,
         x1: f64,

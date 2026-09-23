@@ -75,10 +75,11 @@ pub fn load(app: &mut App) {
     }
     num("freq", &mut app.design.freq);
     num("wire", &mut app.design.wire);
-    if let Some(m) = m.get("metal") {
-        if let Some(found) = crate::design::Material::ALL.iter().find(|x| format!("{x:?}") == *m) {
-            app.design.material = *found;
-        }
+    if let Some(found) = m
+        .get("metal")
+        .and_then(|m| crate::design::Material::ALL.iter().find(|x| format!("{x:?}") == *m))
+    {
+        app.design.material = *found;
     }
     num("span", &mut app.design.span);
     num("z0", &mut app.design.z0);

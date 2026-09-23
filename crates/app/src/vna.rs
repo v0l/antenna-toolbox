@@ -498,7 +498,7 @@ impl VnaTab {
                 }
                 note(
                     ui,
-                    &format!(
+                    format!(
                         "It resonates {:.1}% {} the target, so the resonant lengths are {:.1}% too {}. Scale each of them by ×{ratio:.4}.",
                         pct.abs(),
                         if ratio > 1.0 { "above" } else { "below" },

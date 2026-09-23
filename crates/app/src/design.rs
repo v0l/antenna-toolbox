@@ -1231,6 +1231,7 @@ fn short(id: ControlId) -> &'static str {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn swr_chart(
     ui: &mut Ui,
     pts: &[SweepPoint],

@@ -161,9 +161,9 @@ pub fn fill_surface(topo: &SurfaceTopology, k: f64, feed: &[usize]) -> System {
                 let ip = source_integrals(tri_plus, verts, free_plus, obs, k);
                 let im = source_integrals(tri_minus, verts, free_minus, obs, k);
                 let mut a_dot_rho = C64::new(0.0, 0.0);
-                for t in 0..3 {
-                    a_dot_rho += ip.vector[t] * (en.length / (2.0 * tri_plus.area) * rho[t]);
-                    a_dot_rho -= im.vector[t] * (en.length / (2.0 * tri_minus.area) * rho[t]);
+                for ((&vp, &vm), &r) in ip.vector.iter().zip(&im.vector).zip(&rho) {
+                    a_dot_rho += vp * (en.length / (2.0 * tri_plus.area) * r);
+                    a_dot_rho -= vm * (en.length / (2.0 * tri_minus.area) * r);
                 }
                 let vec_part = J * a_dot_rho * (omega_mu / 2.0);
                 let phi = ip.scalar * (en.length / tri_plus.area)

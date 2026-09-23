@@ -135,9 +135,11 @@ fn on_plane(p: Vec3, planes: &[ImagePlane]) -> bool {
     planes.iter().any(|pl| (p[pl.axis] - pl.at).abs() < 1e-4)
 }
 
+type NodeEnds = (Vec3, Vec<(usize, bool)>);
+
 pub fn bases_for(segs: &[Segment], planes: &[ImagePlane]) -> (Vec<Basis>, usize) {
     let mut order: Vec<[i64; 3]> = Vec::new();
-    let mut at: HashMap<[i64; 3], (Vec3, Vec<(usize, bool)>)> = HashMap::new();
+    let mut at: HashMap<[i64; 3], NodeEnds> = HashMap::new();
     for (i, s) in segs.iter().enumerate() {
         for (p, at_b) in [(s.a, false), (s.b, true)] {
             at.entry(node_key(p))
@@ -359,9 +361,9 @@ fn pair_integrals(o: &Segment, sa: Vec3, sb: Vec3, s_len: f64, rad: f64, k: f64)
             }
         }
         let w = wt * o.len;
-        for i in 0..2 {
-            for j in 0..2 {
-                out.p[i][j] += inner[j] * (wo[i] * w);
+        for (row, &wi) in out.p.iter_mut().zip(&wo) {
+            for (cell, &g) in row.iter_mut().zip(&inner) {
+                *cell += g * (wi * w);
             }
         }
         out.q += total * w;
