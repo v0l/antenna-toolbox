@@ -548,7 +548,7 @@ impl PathTab {
             }
             hint(
                 ui,
-                "Takes a pattern exported from the design tab, a NEC-2 output file, or a SPLAT! .az file with its .el beside it. The gain is looked up toward each point's bearing and takeoff angle.",
+                "Takes a pattern exported from the design tab, a NEC-2 output file, or a SPLAT! .az file with its .el beside it. The gain is looked up toward each point's bearing and takeoff angle. NEC files carry no orientation, so +x is read as boresight and +z as up; fix it with tilt and roll.",
             );
         });
     }
