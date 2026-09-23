@@ -79,3 +79,30 @@ fn physical_optics_plate_approaches_image_theory() {
     assert!((po - image).abs() < 0.1, "PO {po} dBi, image {image} dBi");
     assert!((image - 7.46).abs() < 0.1, "image {image}");
 }
+
+fn resonant_half_length(props: antenna_solver::geometry::WireProps) -> f64 {
+    let lam = 299_792.458 / 30.0;
+    let x = |half: f64| {
+        let g = WireGeometry::new(vec![vec![[-half, 0.0, 0.0], [half, 0.0, 0.0]]], [0.0; 3])
+            .with_props(props);
+        solve_at(&model_for(&g, lam, 2.0, 900), lam, false).z.im
+    };
+    let (mut lo, mut hi) = (2000.0, 2600.0);
+    for _ in 0..30 {
+        let m = (lo + hi) / 2.0;
+        if x(m) < 0.0 { lo = m } else { hi = m }
+    }
+    lo
+}
+
+#[test]
+fn insulated_dipole_matches_the_nec4_is_card() {
+    use antenna_solver::geometry::{COPPER, Insulation, WireProps};
+    let bare = resonant_half_length(WireProps { conductivity: Some(COPPER), insulation: None });
+    let sheathed = resonant_half_length(WireProps {
+        conductivity: Some(COPPER),
+        insulation: Some(Insulation { eps_r: 2.25, inner: 1.0, outer: 3.0 }),
+    });
+    assert!((bare - 2416.0).abs() < 8.0, "bare {bare}");
+    assert!((sheathed - 2302.0).abs() < 8.0, "sheathed {sheathed}");
+}

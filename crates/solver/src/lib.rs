@@ -2,6 +2,7 @@ pub mod geometry;
 pub mod gpu;
 pub mod linalg;
 pub mod mom;
+pub mod nec;
 pub mod po;
 pub mod polarisation;
 pub mod solve;

@@ -61,6 +61,8 @@ pub fn solve_surface(model: &SurfaceModel, lam: f64, want_pattern: bool) -> Solv
         pattern: None,
         field: None,
         dbi: None,
+        directivity: None,
+        efficiency: None,
         peak: 0.0,
         pol: None,
         hybrid: false,
@@ -70,6 +72,7 @@ pub fn solve_surface(model: &SurfaceModel, lam: f64, want_pattern: bool) -> Solv
         let pattern = pattern_of(field.clone());
         let Directivity { linear, peak } = directivity(&*pattern);
         result.dbi = Some(10.0 * linear.max(1e-6).log10());
+        result.directivity = result.dbi;
         result.peak = peak;
         result.pattern = Some(pattern);
         result.field = Some(field);

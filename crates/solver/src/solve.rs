@@ -1,8 +1,8 @@
 use crate::geometry::{Geometry, WireGeometry};
 use crate::gpu;
 use crate::mom::{
-    Directivity, FieldFn, Model, Pattern, build_model, directivity, far_field_vector, pattern_of,
-    segment_currents, solve_cpu,
+    Directivity, FieldFn, Model, Pattern, build_model, complex_permittivity, directivity,
+    far_field_vector, pattern_of, radiated_power, segment_currents, solve_cpu,
 };
 use crate::po::{hybrid_field, po_currents};
 use crate::polarisation::{Ellipse, ellipse_at};
@@ -42,6 +42,8 @@ pub struct SolveResult {
     pub pattern: Option<Pattern>,
     pub field: Option<FieldFn>,
     pub dbi: Option<f64>,
+    pub directivity: Option<f64>,
+    pub efficiency: Option<f64>,
     pub peak: f64,
     pub pol: Option<Ellipse>,
     pub hybrid: bool,
@@ -95,6 +97,8 @@ pub fn solve_at(model: &Model, lam: f64, want_pattern: bool) -> SolveResult {
         pattern: None,
         field: None,
         dbi: None,
+        directivity: None,
+        efficiency: None,
         peak: 0.0,
         pol: None,
         hybrid: false,
@@ -116,13 +120,22 @@ pub fn solve_at(model: &Model, lam: f64, want_pattern: bool) -> SolveResult {
                 model.ground_z,
                 model.images.clone(),
                 model.blocked.clone(),
+                model.real_ground.map(|g| complex_permittivity(g, k)),
             ),
         };
         let pattern = pattern_of(field.clone());
         let Directivity { linear, peak } = directivity(&*pattern);
-        result.dbi = Some(10.0 * linear.max(1e-6).log10());
+        let d_dbi = 10.0 * linear.max(1e-6).log10();
+        result.directivity = Some(d_dbi);
+        result.dbi = Some(d_dbi);
         result.peak = peak;
         if model.po.is_none() {
+            let p_in = 0.5 * i.re;
+            if p_in > 0.0 {
+                let eff = (radiated_power(&*pattern, k) / p_in).min(1.0);
+                result.efficiency = Some(eff);
+                result.dbi = Some(d_dbi + 10.0 * eff.max(1e-9).log10());
+            }
             result.pol = Some(ellipse_at(&field, peak_direction(&*pattern)));
         }
         result.pattern = Some(pattern);

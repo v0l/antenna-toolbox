@@ -1,7 +1,7 @@
-use crate::geometry::{Blocked, ImagePlane, Mesh, SolveLine, WireGeometry};
+use crate::geometry::{Blocked, ImagePlane, Mesh, RealGround, SolveLine, WireGeometry, WireProps};
 use crate::linalg::{Currents, System, solve_system};
 use crate::units::ETA;
-use crate::vec::{Vec3, dot, length, lerp, scale, sub};
+use crate::vec::{Vec3, cross, dot, length, lerp, scale, sub};
 use num_complex::Complex64 as C64;
 use rayon::prelude::*;
 use std::collections::HashMap;
@@ -16,6 +16,7 @@ pub struct Segment {
     pub dir: Vec3,
     pub len: f64,
     pub rad: Option<f64>,
+    pub props: WireProps,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -46,6 +47,7 @@ pub struct Model {
     pub feed_point: Vec3,
     pub max_degree: usize,
     pub ground_z: Option<f64>,
+    pub real_ground: Option<RealGround>,
     pub images: Vec<ImageTransform>,
     pub blocked: Option<Blocked>,
     pub po: Option<Mesh>,
@@ -72,7 +74,7 @@ fn split_at_feed(lines: &[SolveLine], feed: Vec3) -> Vec<SolveLine> {
                 }
                 pts.push(p);
             }
-            SolveLine { pts, rad: spec.rad }
+            SolveLine { pts, ..spec.clone() }
         })
         .collect()
 }
@@ -88,7 +90,7 @@ pub fn segmentise(lines: &[SolveLine], lam: f64, cap: usize) -> Vec<Segment> {
                 if l < 1e-9 {
                     continue;
                 }
-                let n = ((l / target).round() as usize).max(1);
+                let n = spec.segments.unwrap_or(((l / target).round() as usize).max(1)).max(1);
                 for s in 0..n {
                     let p0 = lerp(a, b, s as f64 / n as f64);
                     let p1 = lerp(a, b, (s + 1) as f64 / n as f64);
@@ -101,6 +103,7 @@ pub fn segmentise(lines: &[SolveLine], lam: f64, cap: usize) -> Vec<Segment> {
                         dir: scale(d, 1.0 / len),
                         mid: lerp(p0, p1, 0.5),
                         rad: spec.rad.map(|r| r.min(0.3 * len)),
+                        props: spec.props,
                     });
                 }
             }
@@ -188,6 +191,7 @@ pub fn build_model(geo: &WireGeometry, lam: f64, wire_dia: f64, cap: usize) -> M
         feed,
         max_degree,
         ground_z: geo.ground_z,
+        real_ground: geo.ground_z.and(geo.real_ground),
         images,
         blocked: geo.blocked.clone(),
         po: geo.po.clone(),
@@ -324,33 +328,51 @@ fn pair_integrals(o: &Segment, sa: Vec3, sb: Vec3, s_len: f64, rad: f64, k: f64)
 struct Source {
     a: Vec3,
     b: Vec3,
+    mid: Vec3,
     dir: Vec3,
     len: f64,
     rad: f64,
     sign: f64,
 }
 
-fn sources(segs: &[Segment], a_default: f64, images: &[ImageTransform]) -> Vec<Vec<Source>> {
-    let mut all = vec![
-        segs.iter()
+struct Group {
+    sources: Vec<Source>,
+    ground: bool,
+}
+
+fn sources(
+    segs: &[Segment],
+    a_default: f64,
+    images: &[ImageTransform],
+    gz: Option<f64>,
+) -> Vec<Group> {
+    let mut all = vec![Group {
+        sources: segs
+            .iter()
             .map(|s| Source {
                 a: s.a,
                 b: s.b,
+                mid: s.mid,
                 dir: s.dir,
                 len: s.len,
                 rad: s.rad.unwrap_or(a_default),
                 sign: 1.0,
             })
             .collect(),
-    ];
+        ground: false,
+    }];
     for t in images {
-        all.push(
-            segs.iter()
+        let ground =
+            gz.is_some_and(|z| t.planes.len() == 1 && t.planes[0].axis == 2 && t.planes[0].at == z);
+        all.push(Group {
+            sources: segs
+                .iter()
                 .map(|s| {
                     let (a, b) = (t.apply(s.a), t.apply(s.b));
                     Source {
                         a,
                         b,
+                        mid: lerp(a, b, 0.5),
                         dir: scale(sub(b, a), 1.0 / s.len),
                         len: s.len,
                         rad: s.rad.unwrap_or(a_default),
@@ -358,9 +380,41 @@ fn sources(segs: &[Segment], a_default: f64, images: &[ImageTransform]) -> Vec<V
                     }
                 })
                 .collect(),
-        );
+            ground,
+        });
     }
     all
+}
+
+pub fn complex_permittivity(g: RealGround, k: f64) -> C64 {
+    let lam_m = 2.0 * PI / k / 1000.0;
+    C64::new(g.eps_r, -60.0 * g.sigma * lam_m)
+}
+
+pub fn fresnel(eps: C64, sin_psi: f64) -> (C64, C64) {
+    let cos2 = 1.0 - sin_psi * sin_psi;
+    let root = (eps - cos2).sqrt();
+    let rv = (eps * sin_psi - root) / (eps * sin_psi + root);
+    let rh = (sin_psi - root) / (sin_psi + root);
+    (rv, rh)
+}
+
+fn surface_impedance(props: &WireProps, radius: f64, k: f64) -> C64 {
+    let Some(sigma) = props.conductivity else {
+        return C64::new(0.0, 0.0);
+    };
+    let omega = k * 1000.0 * 299_792_458.0;
+    let mu0 = 4.0e-7 * PI;
+    let rs = (omega * mu0 / (2.0 * sigma)).sqrt();
+    C64::new(rs, rs) / (2.0 * PI * radius / 1000.0) / 1000.0
+}
+
+fn insulation_log(props: &WireProps, radius: f64) -> f64 {
+    props.insulation.map_or(0.0, |ins| {
+        let inner = ins.inner.max(radius);
+        let outer = ins.outer.max(inner);
+        (1.0 - 1.0 / ins.eps_r.max(1.0)) * (outer / inner).ln()
+    })
 }
 
 pub fn fill(model: &Model, k: f64) -> System {
@@ -369,19 +423,32 @@ pub fn fill(model: &Model, k: f64) -> System {
     let n = bases.len();
     let mut sys = System::zeros(n);
     let w = sys.w;
-    let groups = sources(segs, model.a, &model.images);
+    let groups = sources(segs, model.a, &model.images, model.ground_z);
     let jk_eta = C64::new(0.0, k * ETA);
     let j_eta_k = C64::new(0.0, ETA / k);
+    let eps = model.real_ground.map(|g| complex_permittivity(g, k));
+    let local: Vec<(C64, f64)> = segs
+        .iter()
+        .map(|s| {
+            let r = s.rad.unwrap_or(model.a);
+            (surface_impedance(&s.props, r, k), insulation_log(&s.props, r) / (2.0 * PI))
+        })
+        .collect();
 
     sys.a.par_chunks_mut(w).enumerate().for_each(|(m, row)| {
         let bm = &bases[m];
-        for group in &groups {
+        for (gi, group) in groups.iter().enumerate() {
+            let real = eps.filter(|_| group.ground);
             let rows: Vec<Vec<PairIntegrals>> = bm
                 .halves
                 .iter()
                 .map(|h| {
                     let o = &segs[h.seg];
-                    group.iter().map(|s| pair_integrals(o, s.a, s.b, s.len, s.rad, k)).collect()
+                    group
+                        .sources
+                        .iter()
+                        .map(|s| pair_integrals(o, s.a, s.b, s.len, s.rad, k))
+                        .collect()
                 })
                 .collect();
             for (ni, bn) in bases.iter().enumerate() {
@@ -390,12 +457,47 @@ pub fn fill(model: &Model, k: f64) -> System {
                     let o = &segs[h.seg];
                     let dm = h.divergence(o.len);
                     for g in &bn.halves {
-                        let s = &group[g.seg];
+                        let s = &group.sources[g.seg];
                         let pi = &rows[hi][g.seg];
-                        let sig = h.sign * g.sign * s.sign;
                         let pv = pi.p[h.at_b as usize][g.at_b as usize];
                         let dn = g.divergence(s.len) * s.sign;
-                        z += jk_eta * pv * (dot(o.dir, s.dir) * sig) - j_eta_k * pi.q * (dm * dn);
+                        let sig = h.sign * g.sign * s.sign;
+                        match real {
+                            None => {
+                                z += jk_eta * pv * (dot(o.dir, s.dir) * sig)
+                                    - j_eta_k * pi.q * (dm * dn);
+                            }
+                            Some(eps) => {
+                                let d = sub(o.mid, s.mid);
+                                let sin_psi = d[2].abs() / length(d).max(1e-12);
+                                let (rv, rh) = fresnel(eps, sin_psi);
+                                let e = scale(s.dir, sig);
+                                let perp = cross([0.0, 0.0, 1.0], d);
+                                let pl = length(perp);
+                                let (along, across) = if pl > 1e-9 * length(d) {
+                                    let u = scale(perp, 1.0 / pl);
+                                    let o_perp = dot(o.dir, u);
+                                    let across = o_perp * dot(e, u);
+                                    (dot(o.dir, e) - across, across)
+                                } else {
+                                    (dot(o.dir, e), 0.0)
+                                };
+                                z += jk_eta * pv * (rv * along - rh * across)
+                                    - j_eta_k * pi.q * rv * (dm * dn);
+                            }
+                        }
+                    }
+                }
+                if gi == 0 {
+                    for h in &bm.halves {
+                        let (zs, ins) = local[h.seg];
+                        let o = &segs[h.seg];
+                        for g in bn.halves.iter().filter(|g| g.seg == h.seg) {
+                            let overlap = if h.at_b == g.at_b { 1.0 / 3.0 } else { 1.0 / 6.0 };
+                            z += zs * (h.sign * g.sign * overlap * o.len);
+                            z +=
+                                j_eta_k * (ins * h.divergence(o.len) * g.divergence(o.len) * o.len);
+                        }
                     }
                 }
                 row[ni] += z;
@@ -451,6 +553,7 @@ pub fn far_field_vector(
     gz: Option<f64>,
     images: Vec<ImageTransform>,
     blocked: Option<Blocked>,
+    real: Option<C64>,
 ) -> FieldFn {
     Arc::new(move |dir: Vec3| {
         let zero = ([0.0; 3], [0.0; 3]);
@@ -462,6 +565,8 @@ pub fn far_field_vector(
         }
         let mut fr = [0.0; 3];
         let mut fi = [0.0; 3];
+        let mut gr = [0.0; 3];
+        let mut gi = [0.0; 3];
         for (n, s) in segs.iter().enumerate() {
             accumulate(&mut fr, &mut fi, cur[n], s.len, k * dot(dir, s.mid), s.dir);
             for t in &images {
@@ -471,7 +576,30 @@ pub fn far_field_vector(
                     refl[pl.axis] = -refl[pl.axis];
                 }
                 let idir = if t.reverses_current() { scale(refl, -1.0) } else { refl };
-                accumulate(&mut fr, &mut fi, cur[n], s.len, k * dot(dir, im), idir);
+                let is_ground = real.is_some()
+                    && gz.is_some_and(|z| {
+                        t.planes.len() == 1 && t.planes[0].axis == 2 && t.planes[0].at == z
+                    });
+                if is_ground {
+                    accumulate(&mut gr, &mut gi, cur[n], s.len, k * dot(dir, im), idir);
+                } else {
+                    accumulate(&mut fr, &mut fi, cur[n], s.len, k * dot(dir, im), idir);
+                }
+            }
+        }
+        if let Some(eps) = real {
+            let (rv, rh) = fresnel(eps, dir[2].clamp(0.0, 1.0));
+            let horiz = (dir[0] * dir[0] + dir[1] * dir[1]).sqrt();
+            let phi_hat =
+                if horiz > 1e-9 { [-dir[1] / horiz, dir[0] / horiz, 0.0] } else { [0.0, 1.0, 0.0] };
+            let theta_hat = cross(phi_hat, dir);
+            let g = [0, 1, 2].map(|t| C64::new(gr[t], gi[t]));
+            let gt: C64 = (0..3).map(|t| g[t] * theta_hat[t]).sum::<C64>() * rv;
+            let gp: C64 = (0..3).map(|t| g[t] * phi_hat[t]).sum::<C64>() * (-rh);
+            for t in 0..3 {
+                let v = gt * theta_hat[t] + gp * phi_hat[t];
+                fr[t] += v.re;
+                fi[t] += v.im;
             }
         }
         transverse(fr, fi, dir)
