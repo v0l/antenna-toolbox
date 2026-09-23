@@ -69,6 +69,12 @@ impl eframe::App for App {
         self.design.poll(&ctx);
         self.vna.poll();
         self.path.poll(&ctx);
+        if self.path.take_design_request() {
+            match self.design.pattern_snapshot() {
+                Ok(p) => self.path.set_pattern(p),
+                Err(e) => self.path.pattern_failed(e),
+            }
+        }
         let now = format!("{:?}", state::snapshot(self));
         if !cfg!(test) && now != self.saved && !ui.input(|i| i.pointer.any_down()) {
             state::save(self);
@@ -233,6 +239,13 @@ mod tests {
             });
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/shots");
         std::fs::create_dir_all(&dir).unwrap();
+        if let Ok(id) = std::env::var("SHOT_PATTERN") {
+            h.state_mut().design.design = antenna_designs::by_id(&id);
+            settle(&mut h, 3000);
+            let p = h.state_mut().design.pattern_snapshot().unwrap();
+            h.state_mut().path.set_pattern(p);
+            h.state_mut().path.mount.heading = 250.0;
+        }
         h.state_mut().tab = Tab::Path;
         if std::env::var("SHOT_PLANE").is_ok() {
             let p = &mut h.state_mut().path;

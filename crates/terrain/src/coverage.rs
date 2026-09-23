@@ -33,10 +33,11 @@ pub struct Coverage {
     pub bin: f64,
     pub loss: Vec<f32>,
     pub ground: Vec<f32>,
+    pub takeoff: Vec<f32>,
 }
 
 impl Coverage {
-    pub fn loss_at(&self, p: LatLon) -> Option<f32> {
+    fn index(&self, p: LatLon) -> Option<usize> {
         let d = self.spec.site.distance_to(p);
         if d > self.spec.radius || d < self.bin * 0.5 {
             return None;
@@ -44,8 +45,15 @@ impl Coverage {
         let n = self.spec.radials;
         let r = ((self.spec.site.bearing_to(p) / 360.0 * n as f64).round() as usize) % n;
         let b = ((d / self.bin).round() as usize).clamp(1, self.bins) - 1;
-        let v = self.loss[r * self.bins + b];
-        v.is_finite().then_some(v)
+        Some(r * self.bins + b)
+    }
+
+    pub fn loss_at(&self, p: LatLon) -> Option<f32> {
+        self.index(p).map(|i| self.loss[i]).filter(|v| v.is_finite())
+    }
+
+    pub fn takeoff_at(&self, p: LatLon) -> Option<f32> {
+        self.index(p).map(|i| self.takeoff[i])
     }
 }
 
@@ -82,11 +90,11 @@ pub fn compute_with(
     let bins = samples / spec.stride;
     let bin = spec.step * spec.stride as f64;
     let done = AtomicUsize::new(0);
-    let rows: Vec<(Vec<f32>, Vec<f32>)> = (0..spec.radials)
+    let rows: Vec<(Vec<f32>, Vec<f32>, Vec<f32>)> = (0..spec.radials)
         .into_par_iter()
         .map(|r| {
             if cancel.load(Ordering::Relaxed) {
-                return (vec![f32::NAN; bins], vec![0.0; bins]);
+                return (vec![f32::NAN; bins], vec![0.0; bins], vec![0.0; bins]);
             }
             let bearing = r as f64 * 360.0 / spec.radials as f64;
             let ground: Vec<f64> = (0..=samples)
@@ -97,9 +105,22 @@ pub fn compute_with(
                 .collect();
             let mut loss = Vec::with_capacity(bins);
             let mut height = Vec::with_capacity(bins);
+            let mut takeoff = Vec::with_capacity(bins);
+            let curve = 2.0 * (4.0 / 3.0) * EARTH_RADIUS;
+            let tx_abs = ground[0] + spec.tx_agl;
+            let angle = |j: usize, top: f64| {
+                let d = j as f64 * spec.step;
+                ((top - tx_abs) / d - d / curve).atan()
+            };
+            let mut horizon = f64::NEG_INFINITY;
+            let mut seen = 1;
             for b in 1..=bins {
                 let i = b * spec.stride;
                 height.push(ground[i] as f32);
+                while seen < i {
+                    horizon = horizon.max(angle(seen, ground[seen]));
+                    seen += 1;
+                }
                 let rx = if spec.rx_above_sea {
                     (spec.rx_agl - ground[i]).max(0.5)
                 } else {
@@ -118,12 +139,13 @@ pub fn compute_with(
                     )
                 };
                 loss.push(l as f32);
+                takeoff.push(angle(i, ground[i] + rx).max(horizon).to_degrees() as f32);
             }
             let k = done.fetch_add(1, Ordering::Relaxed) + 1;
             if k.is_multiple_of(16) {
                 progress(k as f32 / spec.radials as f32);
             }
-            (loss, height)
+            (loss, height, takeoff)
         })
         .collect();
     if cancel.load(Ordering::Relaxed) {
@@ -131,11 +153,13 @@ pub fn compute_with(
     }
     let mut loss = Vec::with_capacity(spec.radials * bins);
     let mut ground = Vec::with_capacity(spec.radials * bins);
-    for (l, g) in rows {
+    let mut takeoff = Vec::with_capacity(spec.radials * bins);
+    for (l, g, t) in rows {
         loss.extend(l);
         ground.extend(g);
+        takeoff.extend(t);
     }
-    Some(Coverage { spec: spec.clone(), bins, bin, loss, ground })
+    Some(Coverage { spec: spec.clone(), bins, bin, loss, ground, takeoff })
 }
 
 #[cfg(test)]
@@ -186,5 +210,10 @@ mod tests {
         let north = c.loss_at(site.destination(0.0, 15e3)).unwrap();
         let south = c.loss_at(site.destination(180.0, 15e3)).unwrap();
         assert!(north - south > 20.0, "north {north} south {south}");
+        let over_ridge = c.takeoff_at(site.destination(0.0, 15e3)).unwrap();
+        let open = c.takeoff_at(site.destination(180.0, 15e3)).unwrap();
+        let ridge_angle = ((300.0 - 30.0) / 4000.0f64).atan().to_degrees() as f32;
+        assert!((over_ridge - ridge_angle).abs() < 0.3, "{over_ridge} vs {ridge_angle}");
+        assert!(open < 0.0 && open > -0.2, "{open}");
     }
 }

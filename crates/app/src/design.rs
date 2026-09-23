@@ -568,6 +568,58 @@ impl DesignTab {
         }
     }
 
+    pub fn pattern_snapshot(&mut self) -> Result<antenna_terrain::pattern::Pattern, String> {
+        use antenna_solver::vec::{cross, dot, normalise, scale, sub};
+        let r = self.solved.clone().ok_or("the design has not been solved yet")?;
+        if r.pattern.is_none() {
+            return Err("the design has no pattern yet".into());
+        }
+        let scene = self.scene();
+        let u = normalise(scene.up());
+        let mut f = sub(scene.beam_direction(), scale(u, dot(scene.beam_direction(), u)));
+        if dot(f, f) < 1e-6 {
+            let seed = if u[0].abs() < 0.9 { [1.0, 0.0, 0.0] } else { [0.0, 1.0, 0.0] };
+            f = sub(seed, scale(u, dot(seed, u)));
+        }
+        let f = normalise(f);
+        let rt = cross(f, u);
+        let grounded = matches!(self.geometry(), Geometry::Wire(w) if w.ground_z.is_some());
+        Ok(antenna_terrain::pattern::Pattern::from_fn(
+            format!("{} at {} MHz", self.name(), self.freq),
+            Some(self.freq),
+            true,
+            grounded,
+            |az, el| {
+                let (a, e) = (az.to_radians(), el.to_radians());
+                let d = [0, 1, 2]
+                    .map(|k| e.cos() * (a.cos() * f[k] + a.sin() * rt[k]) + e.sin() * u[k]);
+                r.gain_dbi(d).unwrap_or(-100.0)
+            },
+        ))
+    }
+
+    fn export_pattern(&mut self) {
+        let p = match self.pattern_snapshot() {
+            Ok(p) => p,
+            Err(e) => {
+                self.note = Some(e);
+                return;
+            }
+        };
+        let dir = dirs::download_dir().or_else(dirs::home_dir).unwrap_or_default();
+        let slug: String = self
+            .name()
+            .to_lowercase()
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+            .collect();
+        let path = dir.join(format!("{slug}-{}mhz.pattern", self.freq.round()));
+        self.note = Some(match std::fs::write(&path, p.to_text()) {
+            Ok(()) => format!("wrote {}", path.display()),
+            Err(e) => format!("could not write {}: {e}", path.display()),
+        });
+    }
+
     fn export_nec(&mut self) {
         let geo = match self.geometry() {
             Geometry::Wire(w) => w,
@@ -643,9 +695,14 @@ impl DesignTab {
                     }
                 }
             });
-            if ui.button(action("export NEC-2 deck")).clicked() {
-                self.export_nec();
-            }
+            ui.horizontal(|ui| {
+                if ui.button(action("export NEC-2 deck")).clicked() {
+                    self.export_nec();
+                }
+                if ui.button(action("export pattern")).clicked() {
+                    self.export_pattern();
+                }
+            });
             if let Some((ok, m)) = &self.custom.message {
                 status(ui, *ok, m);
             }

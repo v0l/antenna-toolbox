@@ -6,6 +6,10 @@ fn file() -> Option<PathBuf> {
     Some(dirs::config_dir()?.join("antenna-toolbox").join("state.txt"))
 }
 
+pub fn pattern_file() -> Option<PathBuf> {
+    Some(dirs::config_dir()?.join("antenna-toolbox").join("pattern.txt"))
+}
+
 pub fn snapshot(app: &App) -> BTreeMap<&'static str, String> {
     let (d, p, v) = (&app.design, &app.path, &app.vna);
     let mut m = BTreeMap::new();
@@ -36,6 +40,9 @@ pub fn snapshot(app: &App) -> BTreeMap<&'static str, String> {
     m.insert("itm_time", p.itm.time.to_string());
     m.insert("itm_situation", p.itm.situation.to_string());
     m.insert("radius_km", p.radius_km.to_string());
+    m.insert("heading", p.mount.heading.to_string());
+    m.insert("tilt", p.mount.tilt.to_string());
+    m.insert("roll", p.mount.roll.to_string());
     m.insert("vna_points", v.points.to_string());
     m.insert("vna_target", v.target.to_string());
     m.insert("vna_z0", v.z0.to_string());
@@ -96,6 +103,15 @@ pub fn load(app: &mut App) {
     num("itm_time", &mut p.itm.time);
     num("itm_situation", &mut p.itm.situation);
     num("radius_km", &mut p.radius_km);
+    num("heading", &mut p.mount.heading);
+    num("tilt", &mut p.mount.tilt);
+    num("roll", &mut p.mount.roll);
+    if let Some(pat) = pattern_file()
+        .and_then(|f| std::fs::read_to_string(f).ok())
+        .and_then(|t| antenna_terrain::pattern::Pattern::from_text(&t).ok())
+    {
+        p.pattern = Some(std::sync::Arc::new(pat));
+    }
     if let Some(c) = m
         .get("itm_climate")
         .and_then(|v| v.parse::<usize>().ok())

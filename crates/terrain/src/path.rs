@@ -320,12 +320,12 @@ pub fn path_loss(
     freq_mhz: f64,
     params: &Params,
 ) -> f64 {
-    if h_a <= ITM_CEILING && h_b <= ITM_CEILING {
-        if let Ok(r) =
+    if h_a <= ITM_CEILING
+        && h_b <= ITM_CEILING
+        && let Ok(r) =
             itm::point_to_point(h_a.max(0.5), h_b.max(0.5), ground, step, freq_mhz, params)
-        {
-            return r.loss_db;
-        }
+    {
+        return r.loss_db;
     }
     free_space_and_diffraction(ground, step, h_a, h_b, freq_mhz, 4.0 / 3.0)
 }

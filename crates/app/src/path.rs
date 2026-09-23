@@ -4,6 +4,7 @@ use crate::worker::Job;
 use antenna_terrain::coverage::{self, Coverage, Spec, Stage, stride_for};
 use antenna_terrain::itm::{Climate, Params};
 use antenna_terrain::path::{C, fresnel_radius};
+use antenna_terrain::pattern::{Mount, Pattern};
 use antenna_terrain::{Analysis, Dem, Endpoint, LatLon, Profile, analyse, radio_horizon};
 use egui::{
     Align2, Color32, ColorImage, Pos2, Rect, Sense, Shape, Stroke, TextureHandle, Ui, Vec2,
@@ -60,6 +61,11 @@ pub struct PathTab {
     coverage: Option<Arc<Coverage>>,
     overlay: Option<(String, TextureHandle)>,
     below: f32,
+    pub pattern: Option<Arc<Pattern>>,
+    pub mount: Mount,
+    pub pattern_path: String,
+    pattern_msg: Option<(bool, String)>,
+    wants_design: bool,
     dem: Dem,
     job: Option<Job<Result<Profile, String>>>,
     profile: Option<Profile>,
@@ -95,6 +101,11 @@ impl Default for PathTab {
             coverage: None,
             overlay: None,
             below: 0.0,
+            pattern: None,
+            mount: Mount::default(),
+            pattern_path: String::new(),
+            pattern_msg: None,
+            wants_design: false,
             dem: Dem::default(),
             job: None,
             profile: None,
@@ -159,15 +170,69 @@ impl PathTab {
         }));
     }
 
-    fn budget(&self, loss: f64) -> f64 {
-        self.tx_dbm + self.far_dbi + self.gain_dbi - self.cable_db - loss
+    pub fn site_gain(&self, bearing: f64, elevation: f64) -> f64 {
+        match &self.pattern {
+            Some(p) => {
+                p.toward(&self.mount, bearing, elevation)
+                    + if p.absolute { 0.0 } else { self.gain_dbi }
+            }
+            None => self.gain_dbi,
+        }
+    }
+
+    fn budget(&self, loss: f64, site_gain: f64) -> f64 {
+        self.tx_dbm + self.far_dbi + site_gain - self.cable_db - loss
     }
 
     fn overlay_key(&self) -> String {
         format!(
-            "{}|{}|{}|{}|{}",
-            self.tx_dbm, self.far_dbi, self.gain_dbi, self.cable_db, self.sens_dbm
+            "{}|{}|{}|{}|{}|{:?}|{:?}",
+            self.tx_dbm,
+            self.far_dbi,
+            self.gain_dbi,
+            self.cable_db,
+            self.sens_dbm,
+            self.pattern.as_ref().map(Arc::as_ptr),
+            self.mount
         )
+    }
+
+    pub fn take_design_request(&mut self) -> bool {
+        std::mem::take(&mut self.wants_design)
+    }
+
+    pub fn set_pattern(&mut self, p: Pattern) {
+        if !cfg!(test)
+            && let Some(f) = crate::state::pattern_file()
+        {
+            if let Some(dir) = f.parent() {
+                let _ = std::fs::create_dir_all(dir);
+            }
+            let _ = std::fs::write(f, p.to_text());
+        }
+        self.pattern_msg = Some((true, format!("loaded {}", p.name)));
+        self.pattern = Some(Arc::new(p));
+    }
+
+    pub fn pattern_failed(&mut self, why: String) {
+        self.pattern_msg = Some((false, why));
+    }
+
+    fn clear_pattern(&mut self) {
+        if !cfg!(test)
+            && let Some(f) = crate::state::pattern_file()
+        {
+            let _ = std::fs::remove_file(f);
+        }
+        self.pattern = None;
+        self.pattern_msg = None;
+    }
+
+    fn load_pattern_file(&mut self, path: &str) {
+        match read_pattern(path) {
+            Ok(p) => self.set_pattern(p),
+            Err(e) => self.pattern_failed(e),
+        }
     }
 
     fn refresh_overlay(&mut self, ctx: &egui::Context) {
@@ -179,7 +244,11 @@ impl PathTab {
         if self.overlay.as_ref().is_some_and(|(k, _)| *k == key) {
             return;
         }
-        let img = overlay_image(cov, |loss| band(self.budget(loss) - self.sens_dbm));
+        let site = cov.spec.site;
+        let img = overlay_image(cov, |at, loss, takeoff| {
+            let g = self.site_gain(site.bearing_to(at), takeoff);
+            band(self.budget(loss, g) - self.sens_dbm)
+        });
         let tex = ctx.load_texture("coverage", img, egui::TextureOptions::NEAREST);
         self.overlay = Some((key, tex));
     }
@@ -289,6 +358,8 @@ impl PathTab {
             );
         });
         ui.add_space(8.0);
+        self.pattern_section(ui);
+        ui.add_space(8.0);
         section(ui, "far end", "who it talks to", |ui| {
             row(ui, "lat", |ui| {
                 ui.add(
@@ -352,14 +423,6 @@ impl PathTab {
                         .max_decimals(3),
                 );
             });
-            row_help(
-                ui,
-                "site ant dBi",
-                "Your antenna's gain toward the far end, at the takeoff angle shown below.",
-                |ui| {
-                    ui.add(egui::DragValue::new(&mut self.gain_dbi).range(-30.0..=40.0).speed(0.1));
-                },
-            );
             row(ui, "tx power dBm", |ui| {
                 ui.add(egui::DragValue::new(&mut self.tx_dbm).range(-30.0..=70.0).speed(0.5));
             });
@@ -381,6 +444,113 @@ impl PathTab {
         self.coverage_section(ui);
         ui.add_space(8.0);
         self.model_section(ui);
+    }
+
+    fn pattern_section(&mut self, ui: &mut Ui) {
+        section(ui, "pattern", "gain toward every point", |ui| {
+            ui.horizontal(|ui| {
+                if ui.button(action("use design")).clicked() {
+                    self.wants_design = true;
+                }
+                if self.pattern.is_some() && ui.button(action("fixed gain")).clicked() {
+                    self.clear_pattern();
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.pattern_path)
+                        .hint_text("path, or drop a pattern file")
+                        .desired_width(ui.available_width() - 60.0),
+                );
+                if ui.button(action("load")).clicked() {
+                    let path = self.pattern_path.trim().to_string();
+                    self.load_pattern_file(&path);
+                }
+            });
+            if let Some((ok, m)) = &self.pattern_msg {
+                status(ui, *ok, m);
+            }
+            let absolute = self.pattern.as_ref().is_none_or(|p| p.absolute);
+            row_help(
+                ui,
+                if absolute { "gain dBi" } else { "peak dBi" },
+                "With no pattern, this gain applies in every direction. A SPLAT! pattern is only relative, so this is its peak.",
+                |ui| {
+                    ui.add_enabled(
+                        !absolute || self.pattern.is_none(),
+                        egui::DragValue::new(&mut self.gain_dbi).range(-30.0..=40.0).speed(0.1),
+                    );
+                },
+            );
+            if let Some(p) = self.pattern.clone() {
+                row_help(
+                    ui,
+                    "heading °",
+                    "Compass bearing the antenna's boresight points along.",
+                    |ui| {
+                        ui.add(
+                            egui::DragValue::new(&mut self.mount.heading)
+                                .range(0.0..=359.9)
+                                .speed(1.0)
+                                .suffix("°"),
+                        );
+                    },
+                );
+                row_help(
+                    ui,
+                    "tilt °",
+                    "Mechanical tilt of the boresight, positive down, as in SPLAT!.",
+                    |ui| {
+                        ui.add(
+                            egui::DragValue::new(&mut self.mount.tilt)
+                                .range(-45.0..=45.0)
+                                .speed(0.2)
+                                .suffix("°"),
+                        );
+                    },
+                );
+                row_help(
+                    ui,
+                    "roll °",
+                    "Turns the antenna about its boresight. 90 stands a horizontal Yagi's elements upright for vertical polarisation.",
+                    |ui| {
+                        ui.add(
+                            egui::DragValue::new(&mut self.mount.roll)
+                                .range(-180.0..=180.0)
+                                .speed(1.0)
+                                .suffix("°"),
+                        );
+                    },
+                );
+                let peak = p.peak() + if p.absolute { 0.0 } else { self.gain_dbi };
+                let horizon = antenna_solver::analysis::Cut {
+                    degrees: (0..360).map(f64::from).collect(),
+                    gain_dbi: (0..360)
+                        .map(|d| self.site_gain((90.0 - f64::from(d)).rem_euclid(360.0), 0.0))
+                        .collect(),
+                };
+                let w = ui.available_width().min(220.0);
+                charts::polar(ui, w, &horizon, peak, "AT THE HORIZON, NORTH UP", "E");
+                if let Some(f) = p.freq_mhz
+                    && (f / self.freq - 1.0).abs() > 0.05
+                {
+                    Line::new()
+                        .note(format!("solved at {f} MHz, the link is at {} MHz", self.freq))
+                        .size(10.5)
+                        .wrapped(ui);
+                }
+                if p.mirror_below {
+                    hint(
+                        ui,
+                        "Solved over ground, so it has no pattern below the horizon; the gain just above is used for downward angles. The path model adds the ground itself, so a free-space pattern is better where you have one.",
+                    );
+                }
+            }
+            hint(
+                ui,
+                "Takes a pattern exported from the design tab, a NEC-2 output file, or a SPLAT! .az file with its .el beside it. The gain is looked up toward each point's bearing and takeoff angle.",
+            );
+        });
     }
 
     fn model_section(&mut self, ui: &mut Ui) {
@@ -501,6 +671,14 @@ impl PathTab {
     }
 
     fn central_body(&mut self, ui: &mut Ui) -> f32 {
+        let dropped = ui.ctx().input(|i| i.raw.dropped_files.clone());
+        for f in dropped {
+            if let Some(path) = f.path {
+                self.pattern_path = path.display().to_string();
+                let p = self.pattern_path.clone();
+                self.load_pattern_file(&p);
+            }
+        }
         let freq = self.freq;
         let site = self.site;
         let target = self.target;
@@ -516,6 +694,14 @@ impl PathTab {
             .zip(self.overlay.as_ref())
             .map(|(c, (_, t))| (c.spec.bounds(), c.spec.radius, t.id()));
         let opacity = self.opacity;
+        let lobe: Option<Vec<(f64, f64)>> = self.pattern.as_ref().map(|_| {
+            let g: Vec<f64> = (0..=180).map(|i| self.site_gain(i as f64 * 2.0, 0.0)).collect();
+            let peak = g.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+            g.iter()
+                .enumerate()
+                .map(|(i, v)| (i as f64 * 2.0, ((v - peak + 30.0) / 30.0).clamp(0.0, 1.0)))
+                .collect()
+        });
         let height = (ui.clip_rect().bottom() - ui.cursor().top() - self.below - 6.0).max(320.0);
         let drawn = self.map.show(ui, height, site, |c| {
             if let Some(((s, w, n, e), radius, tex)) = overlay {
@@ -537,6 +723,16 @@ impl PathTab {
             }
             let a = c.at(site.0, site.1);
             let b = c.at(target.0, target.1);
+            if let Some(lobe) = &lobe {
+                let pts: Vec<Pos2> = lobe
+                    .iter()
+                    .map(|&(brg, r)| {
+                        let t = brg.to_radians();
+                        a + Vec2::new(t.sin() as f32, -t.cos() as f32) * (r as f32 * 70.0)
+                    })
+                    .collect();
+                c.p.add(Shape::line(pts, Stroke::new(1.6, GOLD)));
+            }
             let colour = if clear { GREEN } else { FAULT };
             c.p.line_segment([a, b], Stroke::new(2.0, colour));
             if horizon_m > 0.0 {
@@ -585,14 +781,13 @@ impl PathTab {
         ) {
             let here = LatLon::new(ll.0, ll.1);
             let centre = LatLon::new(site.0, site.1);
-            if let Some(loss) = cov.loss_at(here) {
-                let rx = self.budget(loss as f64);
+            if let (Some(loss), Some(takeoff)) = (cov.loss_at(here), cov.takeoff_at(here)) {
+                let bearing = centre.bearing_to(here);
+                let g = self.site_gain(bearing, takeoff as f64);
+                let rx = self.budget(loss as f64, g);
                 let text = format!(
-                    "{:.1} km · {:.0}° · loss {:.1} dB · {:.1} dBm ({:+.1} dB)",
+                    "{:.1} km · {bearing:.0}° · {takeoff:+.1}° · loss {loss:.1} dB · ant {g:+.1} dBi · {rx:.1} dBm ({:+.1} dB)",
                     centre.distance_to(here) / 1000.0,
-                    centre.bearing_to(here),
-                    loss,
-                    rx,
                     rx - self.sens_dbm
                 );
                 let p = ui.painter_at(drawn.response.rect);
@@ -665,7 +860,7 @@ impl PathTab {
                     hero(ui, "path loss", &format!("{loss:.1}"), "dB", TRACE);
                     ui.add_space(16.0);
                     {
-                        let rx = self.budget(loss);
+                        let rx = self.budget(loss, self.site_gain(an.bearing, an.takeoff_deg));
                         hero(
                             ui,
                             "received",
@@ -710,6 +905,11 @@ impl PathTab {
                         Err(e) => ("model", e.to_string(), FAULT),
                     },
                     ("takeoff", format!("{:+.2}°", an.takeoff_deg), TRACE),
+                    (
+                        "site gain",
+                        format!("{:+.1} dBi", self.site_gain(an.bearing, an.takeoff_deg)),
+                        TRACE,
+                    ),
                     ("horizon", format!("{:.1} km", horizon_m / 1000.0), TRACE),
                     ("site ground", format!("{:.0} m", p.samples[0].ground), TRACE),
                 ];
@@ -860,7 +1060,10 @@ fn band(margin: f64) -> Option<Color32> {
     BANDS.iter().rev().find(|(lo, _)| margin >= *lo).map(|(_, c)| *c)
 }
 
-fn overlay_image(cov: &Coverage, colour: impl Fn(f64) -> Option<Color32>) -> ColorImage {
+fn overlay_image(
+    cov: &Coverage,
+    colour: impl Fn(LatLon, f64, f64) -> Option<Color32>,
+) -> ColorImage {
     use crate::map::{project, unproject};
     let (s, w, n, e) = cov.spec.bounds();
     let (x0, y0) = project(n, w, 0);
@@ -872,7 +1075,9 @@ fn overlay_image(cov: &Coverage, colour: impl Fn(f64) -> Option<Color32>) -> Col
         for (px, out) in row.iter_mut().enumerate() {
             let x = x0 + (x1 - x0) * (px as f64 + 0.5) / size as f64;
             let (lat, lon) = unproject(x, y, 0);
-            if let Some(c) = cov.loss_at(LatLon::new(lat, lon)).and_then(|l| colour(l as f64)) {
+            let at = LatLon::new(lat, lon);
+            let hit = cov.loss_at(at).zip(cov.takeoff_at(at));
+            if let Some(c) = hit.and_then(|(l, t)| colour(at, l as f64, t as f64)) {
                 *out = c.gamma_multiply(0.8);
             }
         }
@@ -907,5 +1112,28 @@ fn legend(p: &egui::Painter) {
             font.clone(),
             VALUE,
         );
+    }
+}
+
+fn read_pattern(path: &str) -> Result<Pattern, String> {
+    let p = std::path::Path::new(path);
+    let read = |p: &std::path::Path| {
+        std::fs::read_to_string(p).map_err(|e| format!("{}: {e}", p.display()))
+    };
+    let name = p.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    let ext = p.extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+    if ext == "az" || ext == "el" {
+        let az = p.with_extension("az");
+        let el = p.with_extension("el");
+        let el_text = el.exists().then(|| read(&el)).transpose()?;
+        return Pattern::from_splat(&name, &read(&az)?, el_text.as_deref());
+    }
+    let text = read(p)?;
+    if text.starts_with("# antenna-toolbox pattern") {
+        Pattern::from_text(&text)
+    } else if text.contains("RADIATION PATTERNS") {
+        Pattern::from_nec_output(&name, &text)
+    } else {
+        Err(format!("{path}: not a pattern, NEC-2 output or SPLAT! file"))
     }
 }
