@@ -1,8 +1,6 @@
 use crate::draw::{Anchor, BOOM, DIM, Drawing, GOLD, GREY, PALE, Rgba, SILVER};
 use crate::feed_detail::inline;
-use crate::{
-    Build, ControlId, Ctx, DIPOLE_K, Design, Group, Output, Scene, Wire, row, total, wire,
-};
+use crate::{Build, ControlId, Ctx, Design, Group, Output, Scene, Wire, row, total, wire};
 use antenna_solver::geometry::{Geometry, WireGeometry};
 
 pub struct Element {
@@ -99,7 +97,7 @@ pub static YAGI2: Design = Design {
     name: "2-el Yagi",
     group: Group::Beam,
     build: Build::Wire,
-    gain: "5 dBi",
+    gain: "6 dBi",
     controls: &[ControlId::Spacing],
     polarisation: "**Linear, parallel to the elements.** Elements horizontal gives horizontal \
                    polarisation. Bandwidth is a few percent either side of the design frequency.",
@@ -109,8 +107,8 @@ pub static YAGI2: Design = Design {
 fn compute2(c: &Ctx) -> Output {
     let lam = c.lam;
     let spc = c.ctl(ControlId::Spacing).clamp(0.10, 0.30);
-    let drv = c.P("driven", DIPOLE_K * lam);
-    let refl = c.P("reflector", DIPOLE_K * lam * 1.05);
+    let drv = c.P("driven", 0.4625 * lam);
+    let refl = c.P("reflector", 0.50 * lam);
     let s = c.P("spacing", spc * lam);
     let els = [
         Element { len: drv, label: "driven", colour: GOLD, colour3d: GOLD, feed: true, at: 0.0 },
@@ -125,7 +123,7 @@ fn compute2(c: &Ctx) -> Output {
     ];
     let (scene, solve) = yagi_scene(&els);
     Output {
-        spec: "~5 dBi · 10 dB F/B · ~30 Ω".into(),
+        spec: "~6 dBi · 10 dB F/B · ~50 Ω".into(),
         rows: vec![
             row("**driven** dipole, tip to tip", c.fmt(drv)),
             row("each driven half (from the SMA)", c.fmt(drv / 2.0)),
@@ -139,9 +137,8 @@ fn compute2(c: &Ctx) -> Output {
         feed: inline("dipole half", "dipole half", None),
         notes: "**The lazy option.** Two dipole halves on the SMA, one longer wire behind them on \
                 a non-conductive spacer: plastic, wood, foam, hot glue. Nothing connects to the \
-                reflector.\n\nFeed impedance drops to roughly 30 Ω at 0.18 λ, about 1.7:1 SWR \
-                unmatched, which is tolerable on a short run. Wider spacing raises impedance and \
-                lowers gain. A Moxon beats this on every count except build time."
+                reflector.\n\nAt 0.18 λ spacing it solves to about 50 Ω with 6 dBi and 10 dB front to \
+                back. Wider spacing raises impedance and lowers gain. A Moxon beats this on every count except build time."
             .into(),
         cut: None,
     }
@@ -152,7 +149,7 @@ pub static YAGI3: Design = Design {
     name: "3-el Yagi",
     group: Group::Beam,
     build: Build::Wire,
-    gain: "7 dBi",
+    gain: "8 dBi",
     controls: &[],
     polarisation: "**Linear, parallel to the elements.** Same as the 2-element, and narrower \
                    still: a 3-element wire Yagi is usable over about 2 percent of bandwidth before \
@@ -181,7 +178,7 @@ fn compute3(c: &Ctx) -> Output {
     ];
     let (scene, solve) = yagi_scene(&els);
     Output {
-        spec: "~7.5 dBi · 15 dB F/B · ~25 Ω".into(),
+        spec: "~7.7 dBi · 14 dB F/B · ~35 Ω".into(),
         rows: vec![
             row("**reflector** length", c.fmt(refl)),
             row("**driven** dipole, tip to tip", c.fmt(drv)),
@@ -198,7 +195,7 @@ fn compute3(c: &Ctx) -> Output {
         notes: "**Roughly double the power of the 2-element, for one more wire.** The director \
                 goes in front, shorter than the driven element, and like the reflector it connects \
                 to nothing. Element spacing matters more than element length here, so measure the \
-                boom carefully.\n\nImpedance falls to about 25 Ω, near 2:1 SWR. Live with it, or \
+                boom carefully.\n\nImpedance falls to about 35 Ω, near 1.6:1 SWR. Live with it, or \
                 use a folded dipole as the driven element, or add a hairpin match. Going past three \
                 elements on a wire boom is possible but the tolerances stop forgiving you, \
                 especially above 1 GHz."

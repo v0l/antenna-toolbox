@@ -9,7 +9,7 @@ pub static BIQUAD: Design = Design {
     name: "Biquad",
     group: Group::Beam,
     build: Build::Wire,
-    gain: "11 dBi",
+    gain: "10 dBi",
     controls: &[],
     polarisation: "**Linear, perpendicular to the stacking axis.** Drawn here with the two \
                    diamonds stacked vertically, which gives horizontal polarisation. Rotate the \
@@ -70,7 +70,6 @@ fn compute(c: &Ctx) -> Output {
     let hd = diag / 2.0;
     let hp = plate / 2.0;
     let e = lam / 120.0;
-    let gg = lam / 120.0;
     Output {
         spec: "~11 dBi · needs a reflector plate · ~50 Ω".into(),
         rows: vec![
@@ -119,12 +118,11 @@ fn compute(c: &Ctx) -> Output {
         solve: Geometry::Wire(
             WireGeometry::new(
                 vec![
-                    vec![[-e, gg, 0.0], [-hd, hd, 0.0], [0.0, 2.0 * hd, 0.0], [hd, hd, 0.0], [e, gg, 0.0]],
-                    vec![[e, -gg, 0.0], [hd, -hd, 0.0], [0.0, -2.0 * hd, 0.0], [-hd, -hd, 0.0], [-e, -gg, 0.0]],
-                    vec![[e, gg, 0.0], [e, -gg, 0.0]],
-                    vec![[-e, gg, 0.0], [-e, -gg, 0.0]],
+                    vec![[-e, 0.0, 0.0], [-hd, hd, 0.0], [0.0, 2.0 * hd, 0.0], [hd, hd, 0.0], [e, 0.0, 0.0]],
+                    vec![[e, 0.0, 0.0], [hd, -hd, 0.0], [0.0, -2.0 * hd, 0.0], [-hd, -hd, 0.0], [-e, 0.0, 0.0]],
+                    vec![[-e, 0.0, 0.0], [e, 0.0, 0.0]],
                 ],
-                [-e, 0.0, 0.0],
+                [0.0, 0.0, 0.0],
             )
             .ground(-gap),
         ),
@@ -137,10 +135,10 @@ fn compute(c: &Ctx) -> Output {
                 **The plate is not optional.** Without it you have a figure-eight pattern and no \
                 gain. Any sheet metal works: copper clad, a tin lid, an old hard drive cover. \
                 Bigger than 1.1 λ square helps front-to-back a little. Bending 10 mm lips up along \
-                the two side edges adds about 1 dB.\n\nThe gap sets the feed impedance, and in this model, fed across a small gap at the centre, \
-                it comes out well below 50 Ω and capacitive. NEC-2 agrees on the same geometry. \
-                Real builds trim the gap and the side length while watching SWR, so treat the tune \
-                button and the match panel as the starting point."
+                the two side edges adds about 1 dB.\n\nThe two diamonds are fed in parallel across the \
+                centre, which is what puts the impedance near 50 Ω: it solves to about 46 Ω at the \
+                default gap, with NEC-2 in agreement. Gap is the tuning control: 0.10 λ gives about \
+                33 Ω and 0.14 λ about 60 Ω."
             .into(),
         cut: None,
     }

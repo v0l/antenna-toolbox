@@ -13,8 +13,8 @@ pub static DISCONE: Design = Design {
     gain: "2 dBi",
     controls: &[ControlId::Spokes],
     polarisation: "**Vertical, omnidirectional, and almost frequency-independent.** The pattern \
-                   and the impedance hold across a decade of frequency, which no other antenna here \
-                   comes close to. That is the whole point of it: one antenna for a scanner or a \
+                   and the impedance hold across a wide band, about an octave under 2:1 for a wire \
+                   version, which few other antennas here come close to. That is the whole point of it: one antenna for a scanner or a \
                    spectrum survey instead of a drawer full of resonant ones.",
     compute,
 };
@@ -71,8 +71,8 @@ fn diagram(s: f64, disc_r: f64, gap: f64, half: f64, n: usize) -> Drawing {
 fn compute(c: &Ctx) -> Output {
     let lam = c.lam;
     let n = c.ctl(ControlId::Spokes) as usize;
-    let s = c.P("cone slant", 0.25 * lam);
-    let disc_r = c.P("disc radius", 0.35 * 0.25 * lam);
+    let s = c.P("cone slant", 0.35 * lam);
+    let disc_r = c.P("disc radius", 0.1225 * lam);
     let gap = c.P("gap", 0.008 * lam);
     let half = 30f64.to_radians();
     let f = C / lam;
@@ -91,7 +91,7 @@ fn compute(c: &Ctx) -> Output {
         lines.push(cone);
     }
     Output {
-        spec: "~2 dBi · vertical · 50 Ω over a decade".into(),
+        spec: "~2 dBi · vertical · wideband".into(),
         rows: vec![
             row("**cone spoke** slant length", c.fmt(s)),
             row("**disc spoke** length, radius", c.fmt(disc_r)),
@@ -101,7 +101,7 @@ fn compute(c: &Ctx) -> Output {
             row("cone vertical height", c.fmt(s * half.cos())),
             row("**gap** disc to cone apex", c.fmt(gap)),
             row("spokes, each section", n.to_string()),
-            row("usable range", format!("{:.2} to {:.2} GHz", f / 1000.0, 4.0 * f / 1000.0)),
+            row("under 2:1, solved with 16 spokes", format!("about {:.0} to {:.0} MHz", 0.9 * f, 2.0 * f)),
             total("total wire needed", c.fmt(n as f64 * (s + disc_r))),
         ],
         scene: Scene {
@@ -121,9 +121,11 @@ fn compute(c: &Ctx) -> Output {
         ),
         notes: "**One antenna instead of a drawer full of them.** The disc sits on the centre pin, \
                 the cone hangs off the shield, and because there is no single resonant length the \
-                whole thing stays near 50 Ω from the design frequency up to roughly ten times it. \
-                Below the design frequency it falls off a cliff, so pick the lowest frequency you \
-                care about and build for that.\n\n**Wire spokes are as good as sheet metal** as \
+                whole thing stays near 50 Ω across about an octave above the design frequency, with a \
+                usable tail beyond. The design frequency here is the bottom of the band: the cone \
+                slant is 0.35 λ there, longer than the quarter wave often quoted, because a wire \
+                discone cut to a quarter wave is still well off 50 Ω at that frequency. Below it the \
+                match falls away quickly.\n\n**Wire spokes are as good as sheet metal** as \
                 long as you use enough of them. Eight per section is the usual minimum, sixteen is \
                 noticeably better at the top of the range, where the gaps between spokes start to \
                 look large compared to a wavelength.\n\nThe gap between disc and cone apex is small \

@@ -78,8 +78,8 @@ fn compute(c: &Ctx) -> Output {
     let lam = c.lam;
     let cant = c.ctl(ControlId::Cant);
     let right = c.ctl(ControlId::Hand) == 0.0;
-    let driven = c.P("A driven dipole", 0.4571 * lam);
-    let para = c.P("P parasitic wire", 0.4341 * lam);
+    let driven = c.P("A driven dipole", 0.475 * lam);
+    let para = c.P("P parasitic wire", 0.455 * lam);
     let radius = c.P("R ring radius", 0.15 * lam);
     let t = cant.to_radians();
     let sense = if right { 1.0 } else { -1.0 };

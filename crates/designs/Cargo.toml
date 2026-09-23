@@ -6,3 +6,6 @@ license.workspace = true
 
 [dependencies]
 antenna-solver.workspace = true
+
+[dev-dependencies]
+rayon.workspace = true

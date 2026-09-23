@@ -10,7 +10,7 @@ pub static LOOP: Design = Design {
     name: "Wire loop",
     group: Group::TwoSide,
     build: Build::Wire,
-    gain: "3 dBi",
+    gain: "3.5 dBi",
     controls: &[ControlId::LoopCirc],
     polarisation: "**Linear, parallel to the feed point.** A loop is polarised along the tangent \
                    at the gap, so a loop fed at the bottom is horizontally polarised even though \

@@ -76,12 +76,11 @@ fn diagram(a: f64, b: f64, gap: f64, tap: f64, ww: f64, fmt: &dyn Fn(f64) -> Str
 
 fn compute(c: &Ctx) -> Output {
     let lam = c.lam;
-    let vf = 0.95;
-    let a = c.P("A long leg", 0.75 * lam * vf);
-    let b = c.P("B stub", 0.25 * lam * vf);
-    let gap = c.P("C gap", 0.02 * lam);
-    let tap = c.P("D feed tap", 0.045 * lam);
-    let w = c.P("W spacing", 0.02 * lam);
+    let a = c.P("A long leg", 0.74 * lam);
+    let b = c.P("B stub", 0.264 * lam);
+    let gap = c.P("C gap", 0.012 * lam);
+    let tap = c.P("D feed tap", 0.035 * lam);
+    let w = c.P("W spacing", 0.012 * lam);
     Output {
         spec: "~3 dBi · vertical · 50 Ω at the tap".into(),
         rows: vec![

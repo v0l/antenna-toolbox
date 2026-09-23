@@ -179,6 +179,7 @@ name = "antenna-designs"
 version = "0.1.0"
 dependencies = [
  "antenna-solver",
+ "rayon",
 ]
 
 [[package]]

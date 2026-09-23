@@ -307,3 +307,11 @@ impl Design {
 }
 
 pub const DIPOLE_K: f64 = 0.478;
+
+pub fn dress(geo: &mut Geometry, props: antenna_solver::geometry::WireProps) {
+    if let Geometry::Wire(w) = geo {
+        for l in &mut w.lines {
+            l.props = props;
+        }
+    }
+}

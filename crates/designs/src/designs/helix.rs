@@ -10,7 +10,7 @@ pub static HELIX: Design = Design {
     name: "Axial helix",
     group: Group::Beam,
     build: Build::Wire,
-    gain: "13 dBi",
+    gain: "11 dBi",
     controls: &[ControlId::Turns],
     polarisation: "**Circular, handed by the winding direction.** Point your right thumb along the \
                    beam: if your fingers curl the way the wire winds, it is right-hand circular. \
@@ -59,7 +59,7 @@ fn diagram(d: f64, s: f64, n: f64, gp: f64) -> Drawing {
 fn compute(c: &Ctx) -> Output {
     let lam = c.lam;
     let n = c.ctl(ControlId::Turns);
-    let circ = c.P("circumference", lam);
+    let circ = c.P("circumference", 1.1 * lam);
     let d = circ / PI;
     let s = c.P("pitch", 0.22 * lam);
     let wire_per_turn = circ.hypot(s);
@@ -75,7 +75,7 @@ fn compute(c: &Ctx) -> Output {
         .collect();
     let gz = -lam / 60.0;
     Output {
-        spec: format!("~{gain:.1} dBi · circular pol · ~140 Ω"),
+        spec: format!("Kraus ~{gain:.1} dBi · circular pol"),
         rows: vec![
             row("**circumference** of one turn", c.fmt(circ)),
             row("**diameter** of the form", c.fmt(d)),
@@ -109,12 +109,14 @@ fn compute(c: &Ctx) -> Output {
                 Wind the wire around a plastic pipe or a cage of dowels at one turn per pitch \
                 length, on a ground plane at least 0.8 λ across. Wind clockwise for right-hand \
                 circular, anticlockwise for left. Two helices only talk to each other if they share \
-                a hand.\n\n**It does not feed at 50 Ω.** Raw impedance is near 140 Ω. The standard \
+                a hand.\n\n**It does not feed at 50 Ω.** Kraus quotes about 140 Ω; with wire this \
+                thin the model puts it nearer 250 Ω, falling as the wire gets fatter. The standard \
                 fix costs nothing: flatten the first quarter turn into a wide strip running close \
                 and parallel to the ground plane, about 2 mm above it, which tapers the impedance \
                 down to roughly 50 Ω. Adjust the height of that strip while watching SWR.\n\nThe \
-                gain figure is the Kraus formula, which runs optimistic by 1 to 3 dB, more so below \
-                about 6 turns. Treat it as an upper bound. Gain grows with turns and nothing else, \
+                figure in the spec line is the Kraus formula, which runs optimistic by 2 to 3 dB; \
+                the solved gain is the one to believe. The default circumference is 1.1 λ, where the \
+                gain peaks for this pitch. Gain grows with turns and nothing else, \
                 so if you want more, make it longer rather than fatter. Bandwidth is enormous, \
                 roughly 0.75 to 1.3 times design frequency, which makes this the forgiving choice \
                 if you cannot measure."

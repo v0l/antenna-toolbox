@@ -13,7 +13,7 @@ pub static SPIRAL: Design = Design {
     name: "Archimedean spiral",
     group: Group::TwoSide,
     build: Build::Sheet,
-    gain: "5 dBi",
+    gain: "4 dBi",
     controls: &[ControlId::SpiralTurns],
     polarisation: "**Circular, and it stays circular right across the band.** Current chases its \
                    way around the arms rather than sloshing back and forth along them, so the \

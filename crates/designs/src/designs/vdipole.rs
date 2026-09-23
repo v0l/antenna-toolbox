@@ -9,7 +9,7 @@ pub static VDIPOLE: Design = Design {
     name: "V-dipole",
     group: Group::Omni,
     build: Build::Wire,
-    gain: "4 dBi",
+    gain: "2 dBi",
     controls: &[ControlId::Angle],
     polarisation: "**Linear, but pointed at the sky.** A dipole bent into a V, apex down, so the \
                    pattern is a broad dome overhead instead of a doughnut around the horizon. It \
@@ -54,7 +54,7 @@ fn diagram(arm: f64, inc: f64) -> Drawing {
 fn compute(c: &Ctx) -> Output {
     let lam = c.lam;
     let inc = c.ctl(ControlId::Angle);
-    let arm = c.P("arm", 0.245 * lam);
+    let arm = c.P("arm", 0.24 * lam);
     let half = (inc / 2.0).to_radians();
     let e = lam / 120.0;
     let tip = [half.sin() * arm, half.cos() * arm];

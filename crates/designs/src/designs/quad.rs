@@ -1,6 +1,6 @@
 use crate::draw::{Anchor, BOOM, DIM, Drawing, GOLD, GREY, INK, SILVER, Stroke, hex};
 use crate::feed_detail::inline;
-use crate::{Build, ControlId, Ctx, Design, Group, Output, Scene, Wire, row, total, wire};
+use crate::{Build, Ctx, Design, Group, Output, Scene, Wire, row, total, wire};
 use antenna_solver::geometry::{Geometry, WireGeometry};
 use antenna_solver::vec::diamond;
 use std::f64::consts::SQRT_2;
@@ -10,8 +10,8 @@ pub static QUAD: Design = Design {
     name: "2-el quad",
     group: Group::Beam,
     build: Build::Wire,
-    gain: "7 dBi",
-    controls: &[ControlId::Spacing],
+    gain: "7.5 dBi",
+    controls: &[],
     polarisation: "**Linear, set by where you feed it.** Fed at the bottom or top corner as drawn, \
                    the polarisation is horizontal. Move the feed to a left or right corner and it \
                    becomes vertical, with no change to any dimension. Loops are a little \
@@ -68,14 +68,13 @@ fn diagram(side_d: f64, side_r: f64, spacing: f64) -> Drawing {
 
 fn compute(c: &Ctx) -> Output {
     let lam = c.lam;
-    let spc = c.ctl(ControlId::Spacing).clamp(0.10, 0.25);
-    let p_d = c.P("driven perimeter", 1.02 * lam);
-    let p_r = c.P("refl perimeter", 1.06 * lam);
-    let s = c.P("spacing", spc * lam);
+    let p_d = c.P("driven perimeter", 1.005 * lam);
+    let p_r = c.P("refl perimeter", 1.08 * lam);
+    let s = c.P("spacing", 0.12 * lam);
     let r_d = p_d / 4.0 * SQRT_2 / 2.0;
     let r_r = p_r / 4.0 * SQRT_2 / 2.0;
     Output {
-        spec: "~7 dBi · 15 dB F/B · 50-75 Ω".into(),
+        spec: "~7.5 dBi · 19 dB F/B · ~85 Ω".into(),
         rows: vec![
             row("**driven** loop perimeter", c.fmt(p_d)),
             row("driven loop, each of 4 sides", c.fmt(p_d / 4.0)),
@@ -121,8 +120,9 @@ fn compute(c: &Ctx) -> Output {
                 as drawn works as well as square, and is easier to support from one mast.\n\n\
                 **Polarisation follows the feedpoint.** Fed at the bottom corner as drawn, the \
                 polarisation is horizontal. Move the feed to a side corner and it turns vertical. \
-                The reflector loop is closed, continuous, and connected to nothing.\n\nImpedance \
-                runs 50 to 75 Ω across the usable spacing range, so coax connects directly. A quad \
+                The reflector loop is closed, continuous, and connected to nothing.\n\nAt 0.12 λ \
+                spacing with the reflector 8% longer than a wavelength it solves to about 85 Ω, \
+                7.5 dBi and 19 dB front to back. A quarter wave of 75 Ω coax matches it to 50 Ω. A quad \
                 is quiet on receive and forgiving about nearby objects, which is why it survives at \
                 HF where a Yagi would be unaffordable."
             .into(),

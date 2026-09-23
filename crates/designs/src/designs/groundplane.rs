@@ -9,7 +9,7 @@ pub static GROUNDPLANE: Design = Design {
     name: "Ground plane",
     group: Group::Omni,
     build: Build::Wire,
-    gain: "1 dBi",
+    gain: "2 dBi",
     controls: &[ControlId::Droop],
     polarisation: "**Vertical, and omnidirectional in azimuth.** Equal in every compass \
                    direction, with a deep null straight up and most of the power thrown at a \
@@ -46,9 +46,8 @@ fn diagram(rad: f64, rl: f64, dr: f64) -> Drawing {
 fn compute(c: &Ctx) -> Output {
     let lam = c.lam;
     let dr = c.ctl(ControlId::Droop);
-    let rad = c.P("radiator", 0.2375 * lam);
-    let rl = c.P("radial", 0.2375 * lam * 1.05);
-    let z = 36.0 + (50.0 - 36.0) * (dr / 45.0).min(1.0);
+    let rad = c.P("radiator", 0.2325 * lam);
+    let rl = c.P("radial", 0.215 * lam);
     let a = dr.to_radians();
     let mut wires = vec![wire(vec![[0.0; 3], [0.0, rad, 0.0]], GOLD, 3.5)];
     let g = lam / 120.0;
@@ -60,7 +59,7 @@ fn compute(c: &Ctx) -> Output {
         lines.push(vec![[0.0, -g, 0.0], [x, -g - rl * a.sin(), z]]);
     }
     Output {
-        spec: format!("~1 dBi · vertical · ~{z:.0} Ω"),
+        spec: "~2 dBi · vertical · 50 Ω at 45° droop".into(),
         rows: vec![
             row("**radiator**, vertical wire", c.fmt(rad)),
             row("**radials**, 4 off, each", c.fmt(rl)),
@@ -87,9 +86,9 @@ fn compute(c: &Ctx) -> Output {
         notes: "**The default answer for a vertical.** One wire up from the centre pin, four wires \
                 out from the connector body. The radials are the other half of the antenna, not a \
                 grounding afterthought, which is why the thing does not work properly with only \
-                one or two.\n\n**Droop sets the impedance.** Radials flat out give about 36 Ω, a \
-                poor match on 50 Ω coax. Bending them down to 45° raises it to almost exactly 50 Ω, \
-                and that is the only reason the classic drooping shape exists. Anything between 30° \
+                one or two.\n\n**Droop sets the impedance.** Radials flat out give well under 50 Ω, \
+                a poor match on 50 Ω coax. Bending them down to 45° raises it to almost exactly \
+                50 Ω at these lengths, and that is the only reason the classic drooping shape exists. Anything between 30° \
                 and 45° is fine.\n\nFour radials is the practical minimum. More radials buy a \
                 slightly cleaner pattern and a little less feedline current, with diminishing \
                 returns past about eight. A sheet of metal or a car roof works too, and behaves \

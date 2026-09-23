@@ -10,7 +10,7 @@ pub static COIL: Design = Design {
     name: "Helical whip",
     group: Group::Omni,
     build: Build::Wire,
-    gain: "0 dBi",
+    gain: "4.4 dBi",
     controls: &[ControlId::CoilTurns],
     polarisation: "**Vertical, omnidirectional in azimuth.** A normal-mode helix radiates like the \
                    short vertical it is, not like the axial helix in the beams row: the coil is \
@@ -110,14 +110,14 @@ fn compute(c: &Ctx) -> Output {
                 makes it resonate at a height far below a quarter wave, because the coil supplies \
                 the inductance the missing length would have. Nothing else about it improves: the \
                 current is squeezed into a shorter span, so it radiates less well than the straight \
-                whip it replaces.\n\n**The gain figure here is a ceiling you will not reach.** The \
-                solver reports about 4.8 dBi, which is right for the shape: a short vertical over \
+                whip it replaces.\n\n**Watch the efficiency, not the pattern.** A short vertical over \
                 perfect ground has a directivity of 4.77 dBi no matter how short it is, because \
-                squashing it changes how well it is driven, not where it points. What the model \
-                leaves out is loss. At the default size the radiation resistance is only a few \
-                ohms, so the coil's own resistance sits alongside it and eats most of the power as \
-                heat. That is the whole story of the rubber duck: the pattern is fine, the \
-                efficiency is not, and a real one lands nearer 0 dBi.\n\n**Expect an awkward \
+                squashing it changes how well it is driven, not where it points. What changes is \
+                loss: the radiation resistance is only a few ohms, so the wire's own resistance sits \
+                alongside it. The solver includes the wire's skin-effect loss, so the gain it reports \
+                already has that taken off; make the wire thinner or the coil shorter and watch the \
+                efficiency fall. A real rubber duck lands nearer 0 dBi because it also has a small \
+                ground (your hand and the radio) rather than an infinite plane.\n\n**Expect an awkward \
                 feed.** Radiation resistance drops with the square of height, so a coil this short \
                 lands well under 50 Ω with reactance swinging fast either side of resonance. Add or \
                 remove a turn and it moves a long way. Build it slightly long, then trim the top \

@@ -81,27 +81,25 @@ pub fn build_feed(kind: FeedKind, lam: f64, frame: &FeedFrame, driven: Option<f6
             let side = 0.25 * lam;
             let hd = side * SQRT_2 / 2.0;
             let e = lam / 120.0;
-            let g = lam / 120.0;
             FeedGeom {
                 lines: vec![
                     vec![
-                        at(-e, g, 0.0),
+                        at(-e, 0.0, 0.0),
                         at(-hd, hd, 0.0),
                         at(0.0, 2.0 * hd, 0.0),
                         at(hd, hd, 0.0),
-                        at(e, g, 0.0),
+                        at(e, 0.0, 0.0),
                     ],
                     vec![
-                        at(e, -g, 0.0),
+                        at(e, 0.0, 0.0),
                         at(hd, -hd, 0.0),
                         at(0.0, -2.0 * hd, 0.0),
                         at(-hd, -hd, 0.0),
-                        at(-e, -g, 0.0),
+                        at(-e, 0.0, 0.0),
                     ],
-                    vec![at(e, g, 0.0), at(e, -g, 0.0)],
-                    vec![at(-e, g, 0.0), at(-e, -g, 0.0)],
+                    vec![at(-e, 0.0, 0.0), at(e, 0.0, 0.0)],
                 ],
-                feed: at(-e, 0.0, 0.0),
+                feed: at(0.0, 0.0, 0.0),
                 wires: vec![
                     wire(
                         vec![

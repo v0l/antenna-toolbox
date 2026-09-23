@@ -70,10 +70,11 @@ pub fn export(
             match on_edge(a, b, geo.feed).filter(|_| feed_at.is_none()) {
                 Some(t) => {
                     let seg = l / n as f64;
-                    let half = (seg / 2.0).min(t * l).min((1.0 - t) * l);
+                    let half = (seg / 2.0).min(l / 2.0);
                     let dir = scale(sub(b, a), 1.0 / l);
-                    let f0 = sub(geo.feed, scale(dir, half));
-                    let f1 = add(geo.feed, scale(dir, half));
+                    let centre = lerp(a, b, t.clamp(half / l, 1.0 - half / l));
+                    let f0 = sub(centre, scale(dir, half));
+                    let f1 = add(centre, scale(dir, half));
                     let before = length(sub(f0, a));
                     let after = length(sub(b, f1));
                     if before > 1e-9 {

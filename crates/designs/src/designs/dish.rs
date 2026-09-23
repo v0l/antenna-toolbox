@@ -11,7 +11,7 @@ pub static DISH: Design = Design {
     name: "Parabolic dish",
     group: Group::Beam,
     build: Build::Both,
-    gain: "17 dBi",
+    gain: "15 dBi",
     controls: &[ControlId::FeedType, ControlId::FOverD, ControlId::Segments],
     polarisation: "**Linear, set by the feed dipole.** A reflector does not change polarisation, \
                    it only collects. Rotate the feed and the whole antenna rotates with it, which \
