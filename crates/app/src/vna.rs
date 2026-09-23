@@ -1,9 +1,10 @@
-use crate::charts::{self, Chart, GOLD, GREEN, Series};
+use crate::charts::{self, GREEN};
 use crate::design::fmt_z;
+use crate::traces::{self, Trace};
 use crate::worker::Job;
 use antenna_solver::solve::swr_of;
 use antenna_vna::{C64, Calibration, Point, Port, Standard, detect, open};
-use egui::{Color32, Ui};
+use egui::Ui;
 use egui_bench::prelude::*;
 use std::sync::mpsc::{Sender, channel};
 
@@ -16,14 +17,6 @@ enum Reply {
 struct Link {
     tx: Sender<(f64, f64, usize)>,
     job: Job<Reply>,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Plot {
-    Swr,
-    ReturnLoss,
-    Impedance,
-    Smith,
 }
 
 pub struct VnaTab {
@@ -42,7 +35,10 @@ pub struct VnaTab {
     cal: Calibration,
     use_cal: bool,
     capture: Option<Standard>,
-    plot: Plot,
+    traces: [Trace; 4],
+    marker: Option<f64>,
+    smith: bool,
+    fitted: bool,
     message: Option<(bool, String)>,
     pub target: f64,
     pub z0: f64,
@@ -67,7 +63,10 @@ impl Default for VnaTab {
             cal: Calibration::default(),
             use_cal: true,
             capture: None,
-            plot: Plot::Swr,
+            traces: traces::defaults(),
+            marker: None,
+            smith: true,
+            fitted: false,
             message: None,
             target: 162.0,
             z0: 50.0,
@@ -137,6 +136,11 @@ impl VnaTab {
         });
         self.link = Some(Link { tx, job });
         self.message = None;
+    }
+
+    #[cfg(test)]
+    pub fn inject(&mut self, pts: Vec<Point>) {
+        self.raw = pts;
     }
 
     #[cfg(test)]
@@ -351,95 +355,64 @@ impl VnaTab {
     pub fn central(&mut self, ui: &mut Ui) {
         let (z0, target) = (self.z0, self.target);
         let pts = self.measured();
-        tabs(
-            ui,
-            &mut self.plot,
-            &[
-                (Plot::Swr, "swr"),
-                (Plot::ReturnLoss, "return loss"),
-                (Plot::Impedance, "r and x"),
-                (Plot::Smith, "smith"),
-            ],
-        );
         if pts.is_empty() {
             section(ui, "measurement", "", |ui| {
                 note(ui, "Connect the VNA and sweep.", LEGEND);
             });
             return;
         }
-        let x = (pts[0].freq / 1e6, pts[pts.len() - 1].freq / 1e6);
-        let res = resonance(&pts, z0);
-        let rules = vec![(target, Color32::from_rgb(0x4f, 0xa3, 0xc7))];
-        match self.plot {
-            Plot::Swr => {
-                let meas: Vec<(f64, f64)> =
-                    pts.iter().map(|p| (p.freq / 1e6, swr_of(p.z(z0), z0))).collect();
-                let worst = meas.iter().map(|p| p.1).fold(1.0, f64::max);
-                let (top, ticks, log) = charts::swr_axis(worst);
-                let series =
-                    [Series { pts: meas.clone(), colour: TRACE, width: 2.0, label: String::new() }];
-                Chart {
-                    x,
-                    y: (1.0, top),
-                    log_y: log,
-                    y_ticks: ticks,
-                    x_label: "MHz".into(),
-                    rules,
-                    h_rules: vec![(2.0, READOUT_DIM)],
-                    marks: res.map(|r| vec![(r.freq / 1e6, r.swr, GREEN)]).unwrap_or_default(),
-                    height: 300.0,
-                }
-                .show(ui, &series);
-                Line::new().note(charts::bandwidth(&meas, target, z0)).size(11.0).show(ui);
-            }
-            Plot::ReturnLoss => {
-                let rl: Vec<(f64, f64)> =
-                    pts.iter().map(|p| (p.freq / 1e6, p.return_loss_db())).collect();
-                let hi = rl.iter().map(|p| p.1).fold(10.0, f64::max).min(60.0);
-                Chart {
-                    x,
-                    y: (0.0, hi.ceil()),
-                    log_y: false,
-                    y_ticks: charts::nice_ticks(0.0, hi, 6),
-                    x_label: "MHz · return loss dB".into(),
-                    rules,
-                    h_rules: vec![(9.54, READOUT_DIM)],
-                    marks: Vec::new(),
-                    height: 300.0,
-                }
-                .show(ui, &[Series { pts: rl, colour: TRACE, width: 2.0, label: String::new() }]);
-            }
-            Plot::Impedance => {
-                let r: Vec<(f64, f64)> = pts.iter().map(|p| (p.freq / 1e6, p.z(z0).re)).collect();
-                let xs: Vec<(f64, f64)> = pts.iter().map(|p| (p.freq / 1e6, p.z(z0).im)).collect();
-                let lo = xs.iter().map(|p| p.1).fold(0.0, f64::min).max(-500.0);
-                let hi = r.iter().chain(&xs).map(|p| p.1).fold(z0, f64::max).min(1000.0);
-                let series = [
-                    Series { pts: r, colour: TRACE, width: 2.0, label: "R".into() },
-                    Series { pts: xs, colour: GOLD, width: 1.6, label: "X".into() },
-                ];
-                Chart {
-                    x,
-                    y: (lo, hi),
-                    log_y: false,
-                    y_ticks: charts::nice_ticks(lo, hi, 6),
-                    x_label: "MHz · Ω".into(),
-                    rules,
-                    h_rules: vec![(0.0, LEGEND), (z0, READOUT_DIM)],
-                    marks: Vec::new(),
-                    height: 300.0,
-                }
-                .show(ui, &series);
-            }
-            Plot::Smith => {
-                let meas: Vec<C64> = pts.iter().map(|p| p.s11).collect();
-                let series = vec![(meas, TRACE)];
-                let marker = res.map(|r| ((r.z - z0) / (r.z + z0), GREEN));
-                let size = ui.available_width().min(420.0);
-                charts::smith(ui, size, &series, marker);
+        if !self.fitted {
+            self.fitted = true;
+            for t in &mut self.traces {
+                t.fit(&pts, z0);
             }
         }
-        Line::new().note(format!("{} measured points", pts.len())).size(10.5).show(ui);
+        let res = resonance(&pts, z0);
+        let marker = self.marker.or(res.map(|r| r.freq / 1e6));
+        let height = 420.0;
+        let smith_w = if self.smith { height } else { 0.0 };
+        let plot_w = (ui.available_width() - smith_w - 8.0).max(200.0);
+        let mut picked = None;
+        ui.horizontal(|ui| {
+            ui.allocate_ui(egui::vec2(plot_w, height), |ui| {
+                picked = traces::show(ui, &pts, &self.traces, z0, target, marker, height).marker;
+            });
+            if self.smith {
+                let g: Vec<C64> = pts.iter().map(|p| p.s11).collect();
+                let m = marker
+                    .and_then(|f| {
+                        pts.iter().min_by(|a, b| {
+                            (a.freq / 1e6 - f).abs().total_cmp(&(b.freq / 1e6 - f).abs())
+                        })
+                    })
+                    .map(|p| (p.s11, GREEN));
+                charts::smith(ui, height, &[(g, TRACE)], m);
+            }
+        });
+        if let Some(m) = picked {
+            self.marker = m;
+        }
+        ui.add_space(6.0);
+        ui.horizontal(|ui| {
+            if toggle(ui, "smith", self.smith).clicked() {
+                self.smith = !self.smith;
+            }
+            if ui.button(action("auto scale all")).clicked() {
+                for t in &mut self.traces {
+                    t.fit(&pts, z0);
+                }
+            }
+            let m = if self.marker.is_some() {
+                "marker placed by hand, right-click the plot to follow resonance"
+            } else {
+                "marker follows resonance, click the plot to place it"
+            };
+            Line::new().note(format!("{} points · {m}", pts.len())).size(10.5).show(ui);
+        });
+        traces::controls(ui, &mut self.traces, &pts, z0);
+        let swr: Vec<(f64, f64)> =
+            pts.iter().map(|p| (p.freq / 1e6, swr_of(p.z(z0), z0))).collect();
+        Line::new().note(charts::bandwidth(&swr, target, z0)).size(11.0).show(ui);
         ui.add_space(8.0);
         self.trim(ui, res, &pts);
     }
@@ -453,9 +426,12 @@ impl VnaTab {
             ui,
             Some(READOUT),
             |ui| {
-                Line::new().legend("trim").show(ui);
+                Line::new().legend("resonance and trim").show(ui);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    Line::new().note(format!("toward {f0} MHz")).size(10.5).elided(ui);
+                    Line::new()
+                        .note(format!("how far it is from {f0} MHz, and what to cut"))
+                        .size(10.5)
+                        .elided(ui);
                 });
             },
             |ui| {
@@ -487,6 +463,10 @@ impl VnaTab {
                     }
                     readouts(ui, &items);
                 });
+                hint(
+                    ui,
+                    "Resonance is where the reactance crosses zero nearest the best match, or the lowest SWR when it never crosses. A resonant element's length scales inversely with frequency, so the ratio to the target is how much to cut or add.",
+                );
                 let ratio = fr / f0;
                 let pct = (ratio - 1.0) * 100.0;
                 if pct.abs() < 0.3 {

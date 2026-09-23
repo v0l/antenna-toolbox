@@ -5,6 +5,7 @@ mod map;
 mod path;
 mod rich;
 mod state;
+mod traces;
 mod view3d;
 mod vna;
 mod worker;
@@ -202,6 +203,32 @@ mod tests {
             settle(&mut h, 4000);
             h.render().unwrap().save(dir.join(format!("{name}.png"))).unwrap();
         }
+    }
+
+    #[test]
+    #[ignore = "renders a synthetic sweep to target/shots"]
+    fn render_vna_display() {
+        let mut h =
+            Harness::builder().with_size(egui::vec2(1600.0, 1000.0)).wgpu().build_eframe(|cc| {
+                egui_bench::install(&cc.egui_ctx);
+                App::new()
+            });
+        let pts = (0..401)
+            .map(|i| {
+                let f = 800e6 + i as f64 * 0.25e6;
+                let w = f / 880e6;
+                let z = antenna_vna::C64::new(62.0, 900.0 * (w - 1.0 / w));
+                let s11 = (z - 50.0) / (z + 50.0);
+                antenna_vna::Point { freq: f, s11, s21: None }
+            })
+            .collect();
+        h.state_mut().vna.target = 868.0;
+        h.state_mut().vna.inject(pts);
+        h.state_mut().tab = Tab::Vna;
+        h.run_steps(5);
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/shots");
+        std::fs::create_dir_all(&dir).unwrap();
+        h.render().unwrap().save(dir.join("vna-display.png")).unwrap();
     }
 
     #[test]
