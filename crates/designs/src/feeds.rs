@@ -127,14 +127,9 @@ pub fn build_feed(kind: FeedKind, lam: f64, frame: &FeedFrame, driven: Option<f6
                     ),
                 ],
                 pol: "polarisation: linear, across the diamonds",
-                note: "Treat this one with suspicion. A biquad is usually described as radiating \
-                       broadside, but this model puts its main lobe about 38 degrees off \
-                       broadside, toward the stacked end, and 3.5 dB above the broadside level. \
-                       That squint holds across an eight-fold range of feed gap size, so it is \
-                       not a modelling artefact of the gap, but it is not something checked \
-                       against a measured pattern either. A squinting feed lights the edge of a \
-                       reflector rather than the middle, which is why it comes out below the \
-                       plain dipole here.",
+                note: "A biquad feed lights the reflector with a broad linear pattern. It is \
+                       fussier than a dipole about its gap, so check the solved pattern before \
+                       trusting the gain.",
                 depth: 0.0,
                 z_unreliable: false,
             }
