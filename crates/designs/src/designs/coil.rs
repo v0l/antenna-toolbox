@@ -92,7 +92,6 @@ fn compute(c: &Ctx) -> Output {
             omni: true,
             omni_y: Some(height / 2.0),
             pol: "polarisation: vertical, omnidirectional in azimuth".into(),
-            up: Some([0.0, 0.0, 1.0]),
             ..Default::default()
         },
         solve: Geometry::Wire(

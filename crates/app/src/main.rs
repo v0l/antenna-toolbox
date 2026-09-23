@@ -62,7 +62,7 @@ impl eframe::App for App {
         let ctx = ui.ctx().clone();
         self.design.poll(&ctx);
         self.vna.poll();
-        self.path.poll(&ctx, self.design.freq);
+        self.path.poll(&ctx);
         let now = format!("{:?}", state::snapshot(self));
         if !cfg!(test) && now != self.saved && !ui.input(|i| i.pointer.any_down()) {
             state::save(self);
@@ -94,7 +94,7 @@ impl eframe::App for App {
                 ui.add_space(8.0);
                 match self.tab {
                     Tab::Design => self.design.sidebar(ui),
-                    Tab::Vna => self.vna.sidebar(ui, &mut self.design),
+                    Tab::Vna => self.vna.sidebar(ui),
                     Tab::Path => self.path.sidebar(ui),
                 }
             });
@@ -105,8 +105,8 @@ impl eframe::App for App {
                 ui.set_max_width(980.0);
                 match self.tab {
                     Tab::Design => self.design.central(ui),
-                    Tab::Vna => self.vna.central(ui, &mut self.design),
-                    Tab::Path => self.path.central(ui, &mut self.design),
+                    Tab::Vna => self.vna.central(ui),
+                    Tab::Path => self.path.central(ui),
                 }
                 ui.add_space(20.0);
             });
@@ -179,13 +179,11 @@ mod tests {
                 App::new()
             });
         let freq = std::env::var("SHOT_FREQ").ok().and_then(|f| f.parse().ok()).unwrap_or(868.0);
-        h.state_mut().design.design = antenna_designs::by_id("dipole");
-        h.state_mut().design.freq = freq;
+        h.state_mut().vna.target = freq;
         h.state_mut().tab = Tab::Vna;
         settle(&mut h, 2500);
         let ctx = h.ctx.clone();
-        let app = h.state_mut();
-        app.vna.live_sweep(&ctx, &app.design);
+        h.state_mut().vna.live_sweep(&ctx);
         settle(&mut h, 6000);
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/shots");
         std::fs::create_dir_all(&dir).unwrap();

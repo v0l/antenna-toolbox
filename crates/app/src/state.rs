@@ -21,14 +21,15 @@ pub fn snapshot(app: &App) -> BTreeMap<&'static str, String> {
     m.insert("target_lon", p.target.1.to_string());
     m.insert("target_agl", p.target_agl.to_string());
     m.insert("k", p.k.to_string());
-    m.insert("tilt", p.tilt.to_string());
-    m.insert("roll", p.roll.to_string());
-    m.insert("aim_off", p.az_offset.to_string());
+    m.insert("path_freq", p.freq.to_string());
+    m.insert("path_gain", p.gain_dbi.to_string());
     m.insert("tx_dbm", p.tx_dbm.to_string());
     m.insert("far_dbi", p.far_dbi.to_string());
     m.insert("cable_db", p.cable_db.to_string());
     m.insert("sens_dbm", p.sens_dbm.to_string());
     m.insert("vna_points", v.points.to_string());
+    m.insert("vna_target", v.target.to_string());
+    m.insert("vna_z0", v.z0.to_string());
     m
 }
 
@@ -68,13 +69,14 @@ pub fn load(app: &mut App) {
     num("target_lon", &mut p.target.1);
     num("target_agl", &mut p.target_agl);
     num("k", &mut p.k);
-    num("tilt", &mut p.tilt);
-    num("roll", &mut p.roll);
-    num("aim_off", &mut p.az_offset);
+    num("path_freq", &mut p.freq);
+    num("path_gain", &mut p.gain_dbi);
     num("tx_dbm", &mut p.tx_dbm);
     num("far_dbi", &mut p.far_dbi);
     num("cable_db", &mut p.cable_db);
     num("sens_dbm", &mut p.sens_dbm);
+    num("vna_target", &mut app.vna.target);
+    num("vna_z0", &mut app.vna.z0);
     if let Some(n) = m.get("vna_points").and_then(|v| v.parse().ok()) {
         app.vna.points = n;
     }

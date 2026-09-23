@@ -1,5 +1,5 @@
 use crate::charts::{self, Chart, GOLD, GREEN, Series};
-use crate::design::{DesignTab, fmt_z};
+use crate::design::fmt_z;
 use crate::worker::Job;
 use antenna_solver::solve::swr_of;
 use antenna_vna::{C64, Calibration, Point, Port, Standard, detect, open};
@@ -43,9 +43,10 @@ pub struct VnaTab {
     use_cal: bool,
     capture: Option<Standard>,
     plot: Plot,
-    overlay: bool,
     message: Option<(bool, String)>,
-    synced: bool,
+    pub target: f64,
+    pub z0: f64,
+    pub length: f64,
 }
 
 impl Default for VnaTab {
@@ -67,9 +68,10 @@ impl Default for VnaTab {
             use_cal: true,
             capture: None,
             plot: Plot::Swr,
-            overlay: true,
             message: None,
-            synced: false,
+            target: 162.0,
+            z0: 50.0,
+            length: 0.0,
         }
     }
 }
@@ -138,8 +140,8 @@ impl VnaTab {
     }
 
     #[cfg(test)]
-    pub fn live_sweep(&mut self, ctx: &egui::Context, design: &DesignTab) {
-        self.centre_on(design);
+    pub fn live_sweep(&mut self, ctx: &egui::Context) {
+        self.centre_on_target();
         self.connect(ctx);
         std::thread::sleep(std::time::Duration::from_millis(1500));
         self.poll();
@@ -201,12 +203,8 @@ impl VnaTab {
         }
     }
 
-    pub fn sidebar(&mut self, ui: &mut Ui, design: &mut DesignTab) {
+    pub fn sidebar(&mut self, ui: &mut Ui) {
         let ctx = ui.ctx().clone();
-        if !self.synced {
-            self.synced = true;
-            self.centre_on(design);
-        }
         section(ui, "device", "USB serial", |ui| {
             if self.ports.is_empty() {
                 note(ui, "No NanoVNA found. Plug one in and rescan.", LEGEND);
@@ -257,6 +255,25 @@ impl VnaTab {
             }
         });
         ui.add_space(8.0);
+        section(ui, "target", "what the antenna should do", |ui| {
+            row_help(
+                ui,
+                "target MHz",
+                "The frequency you want the antenna resonant on. Trim advice is given against this.",
+                |ui| {
+                    ui.add(
+                        egui::DragValue::new(&mut self.target)
+                            .range(0.05..=6000.0)
+                            .speed(0.1)
+                            .max_decimals(3),
+                    );
+                },
+            );
+            row(ui, "ref Ω", |ui| {
+                ui.add(egui::DragValue::new(&mut self.z0).range(10.0..=600.0).speed(1.0));
+            });
+        });
+        ui.add_space(8.0);
         section(ui, "sweep", "what the VNA measures", |ui| {
             row(ui, "start MHz", |ui| {
                 ui.add(egui::DragValue::new(&mut self.start).range(0.05..=6000.0).speed(0.1));
@@ -267,8 +284,8 @@ impl VnaTab {
             row(ui, "points", |ui| {
                 ui.add(egui::DragValue::new(&mut self.points).range(11..=4001));
             });
-            if ui.button(action("centre on the design")).clicked() {
-                self.centre_on(design);
+            if ui.button(action("centre on the target, ±10%")).clicked() {
+                self.centre_on_target();
             }
             ui.horizontal(|ui| {
                 let can = self.link.is_some() && !self.waiting;
@@ -325,14 +342,14 @@ impl VnaTab {
         });
     }
 
-    fn centre_on(&mut self, design: &DesignTab) {
-        let span = design.freq * (design.span / 100.0).max(0.05);
-        self.start = ((design.freq - span) * 1000.0).round() / 1000.0;
-        self.stop = ((design.freq + span) * 1000.0).round() / 1000.0;
+    fn centre_on_target(&mut self) {
+        let span = self.target * 0.1;
+        self.start = ((self.target - span) * 1000.0).round() / 1000.0;
+        self.stop = ((self.target + span) * 1000.0).round() / 1000.0;
     }
 
-    pub fn central(&mut self, ui: &mut Ui, design: &mut DesignTab) {
-        let z0 = design.z0;
+    pub fn central(&mut self, ui: &mut Ui) {
+        let (z0, target) = (self.z0, self.target);
         let pts = self.measured();
         tabs(
             ui,
@@ -346,42 +363,21 @@ impl VnaTab {
         );
         if pts.is_empty() {
             section(ui, "measurement", "", |ui| {
-                note(
-                    ui,
-                    "Connect the VNA and sweep. The modelled curve for the current design is drawn over the measurement once there is one.",
-                    LEGEND,
-                );
+                note(ui, "Connect the VNA and sweep.", LEGEND);
             });
             return;
         }
         let x = (pts[0].freq / 1e6, pts[pts.len() - 1].freq / 1e6);
-        let model: Vec<(f64, C64)> = if self.overlay {
-            design.sweep.iter().map(|p| (p.f, p.z)).filter(|p| p.0 >= x.0 && p.0 <= x.1).collect()
-        } else {
-            Vec::new()
-        };
         let res = resonance(&pts, z0);
-        let rules = vec![(design.freq, Color32::from_rgb(0x4f, 0xa3, 0xc7))];
+        let rules = vec![(target, Color32::from_rgb(0x4f, 0xa3, 0xc7))];
         match self.plot {
             Plot::Swr => {
                 let meas: Vec<(f64, f64)> =
                     pts.iter().map(|p| (p.freq / 1e6, swr_of(p.z(z0), z0))).collect();
                 let worst = meas.iter().map(|p| p.1).fold(1.0, f64::max);
                 let (top, ticks, log) = charts::swr_axis(worst);
-                let mut series = vec![Series {
-                    pts: meas.clone(),
-                    colour: TRACE,
-                    width: 2.0,
-                    label: "measured".into(),
-                }];
-                if model.len() > 1 {
-                    series.push(Series {
-                        pts: model.iter().map(|&(f, z)| (f, swr_of(z, z0))).collect(),
-                        colour: GOLD,
-                        width: 1.6,
-                        label: "modelled".into(),
-                    });
-                }
+                let series =
+                    [Series { pts: meas.clone(), colour: TRACE, width: 2.0, label: String::new() }];
                 Chart {
                     x,
                     y: (1.0, top),
@@ -394,7 +390,7 @@ impl VnaTab {
                     height: 300.0,
                 }
                 .show(ui, &series);
-                Line::new().note(charts::bandwidth(&meas, design.freq, z0)).size(11.0).show(ui);
+                Line::new().note(charts::bandwidth(&meas, target, z0)).size(11.0).show(ui);
             }
             Plot::ReturnLoss => {
                 let rl: Vec<(f64, f64)> =
@@ -411,39 +407,17 @@ impl VnaTab {
                     marks: Vec::new(),
                     height: 300.0,
                 }
-                .show(
-                    ui,
-                    &[Series { pts: rl, colour: TRACE, width: 2.0, label: "measured".into() }],
-                );
+                .show(ui, &[Series { pts: rl, colour: TRACE, width: 2.0, label: String::new() }]);
             }
             Plot::Impedance => {
                 let r: Vec<(f64, f64)> = pts.iter().map(|p| (p.freq / 1e6, p.z(z0).re)).collect();
                 let xs: Vec<(f64, f64)> = pts.iter().map(|p| (p.freq / 1e6, p.z(z0).im)).collect();
                 let lo = xs.iter().map(|p| p.1).fold(0.0, f64::min).max(-500.0);
                 let hi = r.iter().chain(&xs).map(|p| p.1).fold(z0, f64::max).min(1000.0);
-                let mut series = vec![
-                    Series { pts: r, colour: TRACE, width: 2.0, label: "R measured".into() },
-                    Series {
-                        pts: xs,
-                        colour: TRACE.gamma_multiply(0.55),
-                        width: 1.6,
-                        label: "X measured".into(),
-                    },
+                let series = [
+                    Series { pts: r, colour: TRACE, width: 2.0, label: "R".into() },
+                    Series { pts: xs, colour: GOLD, width: 1.6, label: "X".into() },
                 ];
-                if model.len() > 1 {
-                    series.push(Series {
-                        pts: model.iter().map(|&(f, z)| (f, z.re)).collect(),
-                        colour: GOLD,
-                        width: 1.6,
-                        label: "R model".into(),
-                    });
-                    series.push(Series {
-                        pts: model.iter().map(|&(f, z)| (f, z.im)).collect(),
-                        colour: GOLD.gamma_multiply(0.55),
-                        width: 1.4,
-                        label: "X model".into(),
-                    });
-                }
                 Chart {
                     x,
                     y: (lo, hi),
@@ -459,28 +433,19 @@ impl VnaTab {
             }
             Plot::Smith => {
                 let meas: Vec<C64> = pts.iter().map(|p| p.s11).collect();
-                let mut series = vec![(meas, TRACE)];
-                if model.len() > 1 {
-                    series.push((model.iter().map(|&(_, z)| (z - z0) / (z + z0)).collect(), GOLD));
-                }
+                let series = vec![(meas, TRACE)];
                 let marker = res.map(|r| ((r.z - z0) / (r.z + z0), GREEN));
                 let size = ui.available_width().min(420.0);
                 charts::smith(ui, size, &series, marker);
             }
         }
-        ui.horizontal(|ui| {
-            if toggle(ui, "model overlay", self.overlay).clicked() {
-                self.overlay = !self.overlay;
-            }
-            Line::new().note(format!("{} measured points", pts.len())).size(10.5).show(ui);
-        });
+        Line::new().note(format!("{} measured points", pts.len())).size(10.5).show(ui);
         ui.add_space(8.0);
-        self.trim(ui, design, res, &pts);
+        self.trim(ui, res, &pts);
     }
 
-    fn trim(&mut self, ui: &mut Ui, design: &mut DesignTab, res: Option<Resonance>, pts: &[Point]) {
-        let z0 = design.z0;
-        let f0 = design.freq;
+    fn trim(&mut self, ui: &mut Ui, res: Option<Resonance>, pts: &[Point]) {
+        let (z0, f0) = (self.z0, self.target);
         let at_f0 = pts
             .iter()
             .min_by(|a, b| (a.freq / 1e6 - f0).abs().total_cmp(&(b.freq / 1e6 - f0).abs()));
@@ -490,10 +455,7 @@ impl VnaTab {
             |ui| {
                 Line::new().legend("trim").show(ui);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    Line::new()
-                        .note(format!("toward {f0} MHz on the {}", design.design.name))
-                        .size(10.5)
-                        .elided(ui);
+                    Line::new().note(format!("toward {f0} MHz")).size(10.5).elided(ui);
                 });
             },
             |ui| {
@@ -535,11 +497,10 @@ impl VnaTab {
                     );
                     return;
                 }
-                let params = design.params();
                 note(
                     ui,
                     &format!(
-                        "It resonates {:.1}% {} the target, so the elements are {:.1}% too {}. Scale every length by ×{ratio:.4}, which keeps the ratios the design depends on.",
+                        "It resonates {:.1}% {} the target, so the resonant lengths are {:.1}% too {}. Scale each of them by ×{ratio:.4}.",
                         pct.abs(),
                         if ratio > 1.0 { "above" } else { "below" },
                         pct.abs(),
@@ -547,33 +508,20 @@ impl VnaTab {
                     ),
                     VALUE,
                 );
-                for p in params.iter().take(8) {
-                    let fmt = |mm: f64| antenna_solver::units::format_length(mm, design.unit);
-                    Line::new()
-                        .legend(&p.name)
-                        .column(ui, 150.0)
-                        .value(fmt(p.val))
-                        .gap(8.0)
-                        .note("→")
-                        .gap(8.0)
-                        .set(fmt(p.val * ratio))
-                        .show(ui);
-                }
-                if let Some(m) =
-                    design.sweep.iter().min_by(|a, b| swr_of(a.z, z0).total_cmp(&swr_of(b.z, z0)))
-                {
-                    hint(
-                        ui,
-                        &format!(
-                            "The model puts its best match at {:.2} MHz, so the build is {:+.1}% from the model. Anything beyond a percent or two usually means the feed leads, the choke or something nearby.",
-                            m.f,
-                            (fr / m.f - 1.0) * 100.0
-                        ),
+                ui.horizontal(|ui| {
+                    ui.label(legend("length now mm"));
+                    ui.add(
+                        egui::DragValue::new(&mut self.length).range(0.0..=100_000.0).speed(0.5),
                     );
-                }
-                if ui.button(action(format!("apply ×{ratio:.4} to the design"))).clicked() {
-                    design.scale_params(&params, ratio);
-                }
+                    if self.length > 0.0 {
+                        Line::new()
+                            .gap(8.0)
+                            .note("cut to")
+                            .gap(8.0)
+                            .set(format!("{:.1} mm", self.length * ratio))
+                            .show(ui);
+                    }
+                });
             },
         );
     }

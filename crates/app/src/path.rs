@@ -1,5 +1,4 @@
 use crate::charts::{self, GOLD, GREEN};
-use crate::design::DesignTab;
 use crate::map::MapView;
 use crate::worker::Job;
 use antenna_terrain::path::{C, fresnel_radius};
@@ -14,9 +13,8 @@ pub struct PathTab {
     pub target: (f64, f64),
     pub target_agl: f64,
     pub k: f64,
-    pub tilt: f64,
-    pub roll: f64,
-    pub az_offset: f64,
+    pub freq: f64,
+    pub gain_dbi: f64,
     pub tx_dbm: f64,
     pub far_dbi: f64,
     pub cable_db: f64,
@@ -40,9 +38,8 @@ impl Default for PathTab {
             target: (53.20, -9.60),
             target_agl: 20.0,
             k: 4.0 / 3.0,
-            tilt: 0.0,
-            roll: 0.0,
-            az_offset: 0.0,
+            freq: 162.0,
+            gain_dbi: 2.15,
             tx_dbm: 33.0,
             far_dbi: 2.0,
             cable_db: 1.0,
@@ -72,7 +69,8 @@ impl PathTab {
         )
     }
 
-    pub fn poll(&mut self, ctx: &egui::Context, freq: f64) {
+    pub fn poll(&mut self, ctx: &egui::Context) {
+        let freq = self.freq;
         self.map.poll(ctx);
         let key = self.key();
         if key != self.fetched_for && self.pending.as_ref().is_none_or(|(k, _)| *k != key) {
@@ -179,36 +177,23 @@ impl PathTab {
             );
         });
         ui.add_space(8.0);
-        section(ui, "mounting", "how the solved pattern is pointed", |ui| {
-            row_help(
-                ui,
-                "aim off °",
-                "Degrees the beam is turned away from the far end, clockwise from above.",
-                |ui| {
-                    ui.add(
-                        egui::DragValue::new(&mut self.az_offset).range(-180.0..=180.0).speed(1.0),
-                    );
-                },
-            );
-            row_help(
-                ui,
-                "tilt °",
-                "Mechanical uptilt of the boresight. Negative points it down.",
-                |ui| {
-                    ui.add(egui::DragValue::new(&mut self.tilt).range(-90.0..=90.0).speed(0.5));
-                },
-            );
-            row_help(
-                ui,
-                "roll °",
-                "Rotation about the boresight. 90 turns a horizontally polarised beam vertical.",
-                |ui| {
-                    ui.add(egui::DragValue::new(&mut self.roll).range(-180.0..=180.0).speed(5.0));
-                },
-            );
-        });
-        ui.add_space(8.0);
         section(ui, "link", "budget, one way", |ui| {
+            row(ui, "freq MHz", |ui| {
+                ui.add(
+                    egui::DragValue::new(&mut self.freq)
+                        .range(1.0..=30_000.0)
+                        .speed(0.1)
+                        .max_decimals(3),
+                );
+            });
+            row_help(
+                ui,
+                "gain dBi",
+                "Your antenna's gain toward the far end, at the takeoff angle shown below.",
+                |ui| {
+                    ui.add(egui::DragValue::new(&mut self.gain_dbi).range(-30.0..=40.0).speed(0.1));
+                },
+            );
             row(ui, "far tx dBm", |ui| {
                 ui.add(egui::DragValue::new(&mut self.tx_dbm).range(-30.0..=70.0).speed(0.5));
             });
@@ -225,8 +210,8 @@ impl PathTab {
         });
     }
 
-    pub fn central(&mut self, ui: &mut Ui, design: &mut DesignTab) {
-        let freq = design.freq;
+    pub fn central(&mut self, ui: &mut Ui) {
+        let freq = self.freq;
         let site = self.site;
         let target = self.target;
         let profile = self.profile.clone();
@@ -321,14 +306,7 @@ impl PathTab {
         );
         ui.add_space(8.0);
 
-        let az = self.az_offset;
-        let gain = design.gain_toward(-az, an.takeoff_deg, self.tilt, self.roll);
-        let cut: Vec<(f64, f64)> = (-180..=180)
-            .filter_map(|e| {
-                design.gain_toward(-az, e as f64, self.tilt, self.roll).map(|g| (e as f64, g))
-            })
-            .collect();
-        let peak = cut.iter().map(|c| c.1).fold(f64::NEG_INFINITY, f64::max);
+        let g = self.gain_dbi;
         let loss = an.fspl_db + an.diffraction_db;
         card(
             ui,
@@ -336,10 +314,7 @@ impl PathTab {
             |ui| {
                 Line::new().legend("path").show(ui);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    Line::new()
-                        .note(format!("{freq} MHz · {}", design.design.name))
-                        .size(10.5)
-                        .elided(ui);
+                    Line::new().note(format!("{freq} MHz")).size(10.5).elided(ui);
                 });
             },
             |ui| {
@@ -348,7 +323,7 @@ impl PathTab {
                     ui.add_space(16.0);
                     hero(ui, "path loss", &format!("{loss:.1}"), "dB", TRACE);
                     ui.add_space(16.0);
-                    if let Some(g) = gain {
+                    {
                         let rx = self.tx_dbm + self.far_dbi + g - self.cable_db - loss;
                         hero(
                             ui,
@@ -368,7 +343,7 @@ impl PathTab {
                     }
                 });
                 ui.add_space(6.0);
-                let mut items = vec![
+                let items = vec![
                     ("bearing", format!("{:.1}°", an.bearing), TRACE),
                     (
                         "line of sight",
@@ -390,35 +365,7 @@ impl PathTab {
                     ("horizon", format!("{:.1} km", horizon_m / 1000.0), TRACE),
                     ("site ground", format!("{:.0} m", p.samples[0].ground), TRACE),
                 ];
-                if let Some(g) = gain {
-                    items.push(("gain there", format!("{g:.1} dBi"), TRACE));
-                    items.push(("below peak", format!("{:.1} dB", peak - g), TRACE));
-                }
                 readouts(ui, &items);
-            },
-        );
-        ui.add_space(8.0);
-        section(
-            ui,
-            "pattern toward the far end",
-            "vertical cut of the solved pattern through the bearing",
-            |ui| {
-                if cut.is_empty() {
-                    note(ui, "Waiting for the design to solve.", LEGEND);
-                } else {
-                    let w = ui.available_width().min(420.0);
-                    charts::elevation_polar(
-                        ui,
-                        Vec2::new(w, w),
-                        &cut,
-                        peak,
-                        gain.map(|g| (an.takeoff_deg, g)),
-                    );
-                    hint(
-                        ui,
-                        "Free-space pattern of the design on the first tab, pointed along the bearing. Ground reflection near the antenna is not included.",
-                    );
-                }
             },
         );
     }
@@ -452,7 +399,7 @@ fn profile_plot(ui: &mut Ui, p: &Profile, an: &Analysis, freq: f64) {
             [Pos2::new(plot.left(), y), Pos2::new(plot.right(), y)],
             Stroke::new(1.0, ETCH),
         );
-        painter.text(
+        frame.text(
             Pos2::new(plot.left() - 6.0, y),
             Align2::RIGHT_CENTER,
             format!("{t:.0}"),
@@ -462,7 +409,7 @@ fn profile_plot(ui: &mut Ui, p: &Profile, an: &Analysis, freq: f64) {
     }
     for t in charts::nice_ticks(0.0, d / 1000.0, 8) {
         let x = fx(t * 1000.0);
-        painter.text(
+        frame.text(
             Pos2::new(x, plot.bottom() + 4.0),
             Align2::CENTER_TOP,
             format!("{t:.0}"),

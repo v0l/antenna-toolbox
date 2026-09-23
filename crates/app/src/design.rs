@@ -13,7 +13,6 @@ use antenna_solver::solve::{
     Prepared, SolveResult, SweepPoint, segment_cap, sweep, sweep_cap, swr_of, tune_to_resonance,
 };
 use antenna_solver::units::{Unit, format_length, wavelength};
-use antenna_solver::vec::{Vec3, cross, dot, normalise, scale, sub};
 use egui::{Color32, Ui};
 use egui_bench::prelude::*;
 use std::collections::HashMap;
@@ -130,48 +129,6 @@ impl DesignTab {
             self.computed = Some((key, comp));
         }
         &self.computed.as_ref().expect("computed").1
-    }
-
-    pub fn scene_up_forward(&mut self) -> (Vec3, Vec3) {
-        let scene = &self.computed().output.scene;
-        let up = normalise(scene.up());
-        let beam = scene.beam_direction();
-        let mut fwd = sub(beam, scale(up, dot(beam, up)));
-        if dot(fwd, fwd) < 1e-6 || scene.omni {
-            fwd = if up[2].abs() > 0.9 {
-                [1.0, 0.0, 0.0]
-            } else {
-                sub([0.0, 0.0, 1.0], scale(up, up[2]))
-            };
-        }
-        (up, normalise(fwd))
-    }
-
-    pub fn gain_toward(
-        &mut self,
-        az_rel_deg: f64,
-        el_deg: f64,
-        tilt_deg: f64,
-        roll_deg: f64,
-    ) -> Option<f64> {
-        let (up, fwd) = self.scene_up_forward();
-        let side = cross(up, fwd);
-        let (el, az) = (el_deg.to_radians(), az_rel_deg.to_radians());
-        let local = [el.cos() * az.cos(), el.cos() * az.sin(), el.sin()];
-        let t = (-tilt_deg).to_radians();
-        let tilted = [
-            local[0] * t.cos() - local[2] * t.sin(),
-            local[1],
-            local[0] * t.sin() + local[2] * t.cos(),
-        ];
-        let r = roll_deg.to_radians();
-        let rolled = [
-            tilted[0],
-            tilted[1] * r.cos() - tilted[2] * r.sin(),
-            tilted[1] * r.sin() + tilted[2] * r.cos(),
-        ];
-        let dir = [0, 1, 2].map(|i| rolled[0] * fwd[i] + rolled[1] * side[i] + rolled[2] * up[i]);
-        self.solved.as_ref()?.gain_dbi(dir)
     }
 
     fn reset_scale(&mut self) {
@@ -327,10 +284,6 @@ impl DesignTab {
             self.overrides.insert(p.key.clone(), p.val * s);
         }
         self.edits.clear();
-    }
-
-    pub fn params(&mut self) -> Vec<Tunable> {
-        self.computed().params.clone()
     }
 
     pub fn plan(&mut self) -> Option<MatchPlan> {
