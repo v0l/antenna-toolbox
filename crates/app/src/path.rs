@@ -466,7 +466,8 @@ impl PathTab {
             .zip(self.overlay.as_ref())
             .map(|(c, (_, t))| (c.spec.bounds(), c.spec.radius, t.id()));
         let opacity = self.opacity;
-        let drawn = self.map.show(ui, 460.0, site, |c| {
+        let height = (ui.ctx().content_rect().height() * 0.72).max(460.0);
+        let drawn = self.map.show(ui, height, site, |c| {
             if let Some(((s, w, n, e), radius, tex)) = overlay {
                 c.p.image(
                     tex,
