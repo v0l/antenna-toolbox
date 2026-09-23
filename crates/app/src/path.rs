@@ -477,8 +477,8 @@ fn profile_plot(ui: &mut Ui, p: &Profile, an: &Analysis, freq: f64) {
         );
     }
     frame.text(
-        Pos2::new(plot.left(), rect.bottom() - 4.0),
-        Align2::LEFT_BOTTOM,
+        Pos2::new(plot.right(), rect.bottom() - 4.0),
+        Align2::RIGHT_BOTTOM,
         "km · metres above sea level, earth bulge included",
         theme::legend_font(10.0),
         LEGEND,

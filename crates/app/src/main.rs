@@ -106,7 +106,6 @@ impl eframe::App for App {
 
         egui::CentralPanel::default().show(ui, |ui| {
             let out = egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
-                ui.set_max_width(980.0);
                 match self.tab {
                     Tab::Design => self.design.central(ui),
                     Tab::Vna => self.vna.central(ui),
@@ -161,7 +160,7 @@ mod tests {
 
     #[test]
     fn scrolling_over_the_map_zooms_it_and_leaves_the_page_alone() {
-        let mut h = Harness::builder().with_size(egui::vec2(1400.0, 360.0)).build_eframe(|cc| {
+        let mut h = Harness::builder().with_size(egui::vec2(1400.0, 490.0)).build_eframe(|cc| {
             egui_bench::install(&cc.egui_ctx);
             App::new()
         });
@@ -171,7 +170,7 @@ mod tests {
         wheel(&mut h, egui::pos2(800.0, 200.0), -120.0);
         assert!(h.state().path.map_zoom() < zoom, "map did not zoom out");
         assert_eq!(h.state().page_offset, 0.0, "page scrolled under the map");
-        wheel(&mut h, egui::pos2(1350.0, 200.0), -120.0);
+        wheel(&mut h, egui::pos2(800.0, 474.0), -120.0);
         assert!(
             h.state().page_offset > 0.0,
             "page does not scroll at all, so the test proves nothing"
