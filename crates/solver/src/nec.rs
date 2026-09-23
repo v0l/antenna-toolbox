@@ -156,7 +156,13 @@ pub fn export(
     let _ = writeln!(o, "GE {}", if geo.ground_z.is_some() { 1 } else { 0 });
     match (geo.ground_z, geo.real_ground) {
         (Some(_), Some(g)) => {
-            let _ = writeln!(o, "GN 0 0 0 0 {} {}", g.eps_r, g.sigma);
+            let _ = writeln!(
+                o,
+                "GN {} 0 0 0 {} {}",
+                if geo.sommerfeld { 2 } else { 0 },
+                g.eps_r,
+                g.sigma
+            );
         }
         (Some(_), None) => {
             let _ = writeln!(o, "GN 1");
@@ -394,11 +400,7 @@ pub fn import(deck: &str) -> Result<Imported, String> {
                 -1 => ground = None,
                 1 => ground = Some(None),
                 t => {
-                    if t == 2 {
-                        out.warnings.push(
-                            "Sommerfeld ground (GN 2) read as the reflection-coefficient approximation".into(),
-                        );
-                    }
+                    out.geo.sommerfeld = t == 2;
                     ground =
                         Some(Some(RealGround { eps_r: get(4).max(1.0), sigma: get(5).max(0.0) }));
                 }

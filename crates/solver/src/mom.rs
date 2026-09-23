@@ -52,6 +52,7 @@ pub struct Model {
     pub max_degree: usize,
     pub ground_z: Option<f64>,
     pub real_ground: Option<RealGround>,
+    pub sommerfeld: bool,
     pub images: Vec<ImageTransform>,
     pub blocked: Option<Blocked>,
     pub po: Option<Mesh>,
@@ -238,6 +239,7 @@ pub fn build_model(geo: &WireGeometry, lam: f64, wire_dia: f64, cap: usize) -> M
         max_degree,
         ground_z: geo.ground_z,
         real_ground: geo.ground_z.and(geo.real_ground),
+        sommerfeld: geo.sommerfeld && geo.mirrors.is_empty(),
         images,
         blocked: geo.blocked.clone(),
         po: geo.po.clone(),
@@ -474,6 +476,7 @@ pub fn fill(model: &Model, k: f64) -> System {
     let jk_eta = C64::new(0.0, k * ETA);
     let j_eta_k = C64::new(0.0, ETA / k);
     let eps = model.real_ground.map(|g| complex_permittivity(g, k));
+    let static_image = eps.filter(|_| model.sommerfeld).map(|e| (e - 1.0) / (e + 1.0));
     let local: Vec<(C64, C64)> = segs
         .iter()
         .map(|s| {
@@ -510,6 +513,12 @@ pub fn fill(model: &Model, k: f64) -> System {
                         let dn = g.divergence(s.len) * s.sign;
                         let sig = h.sign * g.sign * s.sign;
                         match real {
+                            Some(_) if static_image.is_some() => {
+                                let r0 = static_image.unwrap_or_default();
+                                z += r0
+                                    * (jk_eta * pv * (dot(o.dir, s.dir) * sig)
+                                        - j_eta_k * pi.q * (dm * dn));
+                            }
                             None => {
                                 z += jk_eta * pv * (dot(o.dir, s.dir) * sig)
                                     - j_eta_k * pi.q * (dm * dn);
@@ -604,8 +613,106 @@ impl Model {
     }
 }
 
+struct Point {
+    at: Vec3,
+    weight: f64,
+    current: Vec3,
+    divergence: f64,
+}
+
+fn basis_points(model: &Model, b: &Basis) -> Vec<Point> {
+    let g = 1.0 / (2.0 * 3f64.sqrt());
+    b.halves
+        .iter()
+        .flat_map(|h| {
+            let s = &model.segs[h.seg];
+            [0.5 - g, 0.5 + g].map(|u| {
+                let f = if h.at_b { u } else { 1.0 - u };
+                Point {
+                    at: lerp(s.a, s.b, u),
+                    weight: 0.5 * s.len,
+                    current: scale(s.dir, h.sign * f),
+                    divergence: h.divergence(s.len),
+                }
+            })
+        })
+        .collect()
+}
+
+pub fn sommerfeld_correction(model: &Model, k: f64) -> Option<Vec<C64>> {
+    let gz = model.ground_z?;
+    let eps = complex_permittivity(model.real_ground?, k);
+    if !model.sommerfeld {
+        return None;
+    }
+    let ground = crate::sommerfeld::Ground::new(eps, k);
+    let n = model.bases.len();
+    let points: Vec<Vec<Point>> = model.bases.iter().map(|b| basis_points(model, b)).collect();
+    let factor = C64::new(0.0, ETA / (4.0 * PI * k));
+    let mut out = vec![C64::new(0.0, 0.0); n * n];
+    out.par_chunks_mut(n).enumerate().for_each(|(m, row)| {
+        for (ni, cell) in row.iter_mut().enumerate() {
+            let mut z = C64::new(0.0, 0.0);
+            for pm in &points[m] {
+                for pn in &points[ni] {
+                    let (p, d) = correction_field(&ground, gz, pm.at, pn.at, pn.current);
+                    let w = pm.weight * pn.weight;
+                    let jp = p[0] * pm.current[0] + p[1] * pm.current[1] + p[2] * pm.current[2];
+                    z += (jp * (k * k) - d * pm.divergence) * w;
+                }
+            }
+            *cell = z * factor;
+        }
+    });
+    Some(out)
+}
+
+fn correction_field(
+    g: &crate::sommerfeld::Ground,
+    gz: f64,
+    r: Vec3,
+    rs: Vec3,
+    j: Vec3,
+) -> ([C64; 3], C64) {
+    let (dx, dy) = (r[0] - rs[0], r[1] - rs[1]);
+    let rho = (dx * dx + dy * dy).sqrt();
+    let zeta = (r[2] - gz) + (rs[2] - gz);
+    let [iv, dv, ihn, izn, dhn] = g.integrals(rho, zeta.max(1e-6));
+    let r2 = (rho * rho + zeta * zeta).sqrt();
+    let kk = g.k;
+    let gr = C64::new(0.0, -kk * r2).exp() / r2;
+    let dgr = -gr * C64::new(1.0, kk * r2) / r2;
+    let r0 = g.r0;
+    let ih = ihn + r0 * gr;
+    let static_z =
+        if rho > 1e-9 * r2 { (1.0 - zeta / r2) / rho } else { rho / (2.0 * zeta * zeta) };
+    let iz = izn - r0 * static_z;
+    let dh = dhn + r0 * (rho / (r2 * r2 * r2)) + r0 * (rho / r2) * dgr;
+    let hlen = (j[0] * j[0] + j[1] * j[1]).sqrt();
+    let mut p = [C64::new(0.0, 0.0); 3];
+    p[2] += iv * j[2];
+    let mut d = dv * j[2];
+    if hlen > 0.0 {
+        let h = [j[0] / hlen, j[1] / hlen];
+        let cos_phi = if rho > 1e-9 { (dx * h[0] + dy * h[1]) / rho } else { 0.0 };
+        p[0] += ih * j[0];
+        p[1] += ih * j[1];
+        p[2] += iz * (hlen * cos_phi);
+        d += dh * (hlen * cos_phi);
+    }
+    (p, d)
+}
+
 pub fn solve_cpu(model: &Model, k: f64) -> Currents {
     let mut sys = fill(model, k);
+    if let Some(c) = sommerfeld_correction(model, k) {
+        let (n, w) = (sys.n, sys.w);
+        for m in 0..n {
+            for j in 0..n {
+                sys.a[m * w + j] += c[m * n + j];
+            }
+        }
+    }
     if model.bases.is_empty() {
         return solve_system(sys);
     }

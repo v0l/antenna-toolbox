@@ -241,3 +241,38 @@ fn segments_fatter_than_they_are_long_are_counted() {
     assert_eq!(solve(0.001), 0);
     assert!(solve(0.02) >= 21);
 }
+
+#[test]
+fn sommerfeld_ground_matches_nec2_gn2_close_to_the_ground() {
+    let cases = [
+        (
+            "GW 1 41 -5.1397 0 0.4283 5.1397 0 0.4283 0.001\nGN 2 0 0 0 13 0.005\nEX 0 1 21 0 1 0",
+            C64::new(87.1, 22.5),
+        ),
+        (
+            "GW 1 41 -5.1397 0 1.0707 5.1397 0 1.0707 0.001\nGN 2 0 0 0 13 0.005\nEX 0 1 21 0 1 0",
+            C64::new(60.8, -5.9),
+        ),
+        (
+            "GW 1 41 -5.1397 0 2.1414 5.1397 0 2.1414 0.001\nGN 2 0 0 0 13 0.005\nEX 0 1 21 0 1 0",
+            C64::new(53.2, -3.3),
+        ),
+        (
+            "GW 1 21 0 0 0.43 0 0 10.43 0.001\nGN 2 0 0 0 13 0.005\nEX 0 1 11 0 1 0",
+            C64::new(83.0, -54.5),
+        ),
+        (
+            "GW 1 21 0 0 0.43 0 0 10.43 0.001\nGN 2 0 0 0 80 5\nEX 0 1 11 0 1 0",
+            C64::new(87.9, -49.4),
+        ),
+    ];
+    for (body, nec) in cases {
+        let deck = format!("{body}\nGE 1\nFR 0 1 0 0 14.0 0\nEN\n");
+        let deck = deck.replacen("\nGE 1", "", 1).replacen("GN", "GE 1\nGN", 1);
+        let r = antenna_solver::nec::import(&deck).unwrap();
+        assert!(r.geo.sommerfeld);
+        let lam = 299_792.458 / 14.0;
+        let z = solve_at(&model_for(&r.geo, lam, 2.0, 900), lam, false).z;
+        assert!((z - nec).norm() < 3.0, "nec2 GN 2 {nec}, ours {z}");
+    }
+}

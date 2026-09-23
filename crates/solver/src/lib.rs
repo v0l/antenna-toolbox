@@ -27,6 +27,7 @@ pub mod nec;
 pub mod po;
 pub mod polarisation;
 pub mod solve;
+pub mod sommerfeld;
 pub mod surface;
 pub mod units;
 pub mod vec;

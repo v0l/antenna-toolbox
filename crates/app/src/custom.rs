@@ -111,6 +111,7 @@ impl Custom {
             Ground::Real(r) => {
                 g.ground_z = Some(0.0);
                 g.real_ground = Some(r);
+                g.sommerfeld = true;
             }
         }
         g

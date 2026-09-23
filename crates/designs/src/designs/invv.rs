@@ -29,6 +29,7 @@ fn compute(c: &Ctx) -> Output {
         WireGeometry::new(vec![vec![tip(-1.0), [0.0, 0.0, apex], tip(1.0)]], [0.0, 0.0, apex])
             .ground(0.0);
     geo.real_ground = Some(RealGround::AVERAGE);
+    geo.sommerfeld = true;
     Output {
         spec: format!("~6 dBi over average ground · about 50 Ω · apex {:.2} λ up", apex / lam),
         rows: vec![
@@ -69,9 +70,8 @@ fn compute(c: &Ctx) -> Output {
                 down it throws most of its power straight up, which suits short-range HF \
                 work; above half a wave the main lobe comes down toward the horizon for \
                 distance. Keep the tips out of reach: they carry high voltage when \
-                transmitting.\n\nThe ground model is the reflection-coefficient approximation, \
-                good for wires more than about a tenth of a wave up. Tips closer to the ground \
-                than that are only roughly modelled."
+                transmitting.\n\nThe ground is modelled with Sommerfeld's exact solution, \
+                the same as NEC's GN 2 card, so low tips are handled properly."
             .into(),
         cut: None,
     }

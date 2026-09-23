@@ -129,6 +129,7 @@ pub struct WireGeometry {
     pub networks: Vec<(Vec3, Vec3, Network)>,
     pub ground_z: Option<f64>,
     pub real_ground: Option<RealGround>,
+    pub sommerfeld: bool,
     pub mirrors: Vec<ImagePlane>,
     pub blocked: Option<Blocked>,
     pub po: Option<Mesh>,
