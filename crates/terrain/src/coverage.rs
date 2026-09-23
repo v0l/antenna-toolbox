@@ -1,6 +1,6 @@
 use crate::dem::Dem;
-use crate::itm::{self, Params};
-use crate::path::{EARTH_RADIUS, LatLon};
+use crate::itm::Params;
+use crate::path::{EARTH_RADIUS, LatLon, path_loss};
 use rayon::prelude::*;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
@@ -9,6 +9,7 @@ pub struct Spec {
     pub site: LatLon,
     pub tx_agl: f64,
     pub rx_agl: f64,
+    pub rx_above_sea: bool,
     pub radius: f64,
     pub freq_mhz: f64,
     pub params: Params,
@@ -88,19 +89,22 @@ pub fn compute_with(
             for b in 1..=bins {
                 let i = b * spec.stride;
                 height.push(ground[i] as f32);
+                let rx = if spec.rx_above_sea {
+                    (spec.rx_agl - ground[i]).max(0.5)
+                } else {
+                    spec.rx_agl
+                };
                 let l = if i < 2 {
                     f64::NAN
                 } else {
-                    itm::point_to_point(
-                        spec.tx_agl,
-                        spec.rx_agl,
+                    path_loss(
                         &ground[..=i],
                         spec.step,
+                        spec.tx_agl,
+                        rx,
                         spec.freq_mhz,
                         &spec.params,
                     )
-                    .map(|x| x.loss_db)
-                    .unwrap_or(f64::NAN)
                 };
                 loss.push(l as f32);
             }
@@ -132,6 +136,7 @@ mod tests {
             site: LatLon::new(53.0, -9.0),
             tx_agl: 10.0,
             rx_agl: 10.0,
+            rx_above_sea: false,
             radius: 30e3,
             freq_mhz: 162.0,
             params: Params::default(),
@@ -150,7 +155,8 @@ mod tests {
         assert!(row.windows(2).all(|w| w[1] >= w[0] - 0.5), "{row:?}");
         let far = s.site.destination(90.0, 20e3);
         let direct =
-            itm::point_to_point(10.0, 10.0, &vec![20.0; 201], 100.0, 162.0, &s.params).unwrap();
+            crate::itm::point_to_point(10.0, 10.0, &vec![20.0; 201], 100.0, 162.0, &s.params)
+                .unwrap();
         let got = c.loss_at(far).unwrap() as f64;
         assert!((got - direct.loss_db).abs() < 0.01, "{got} vs {}", direct.loss_db);
         assert!(c.loss_at(s.site.destination(0.0, 31e3)).is_none());

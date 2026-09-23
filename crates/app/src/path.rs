@@ -43,6 +43,7 @@ pub struct PathTab {
     pub site_agl: f64,
     pub target: (f64, f64),
     pub target_agl: f64,
+    pub target_asl: bool,
     pub k: f64,
     pub freq: f64,
     pub gain_dbi: f64,
@@ -77,6 +78,7 @@ impl Default for PathTab {
             site_agl: 10.0,
             target: (53.20, -9.60),
             target_agl: 20.0,
+            target_asl: false,
             k: 4.0 / 3.0,
             freq: 162.0,
             gain_dbi: 2.15,
@@ -113,8 +115,8 @@ fn ep(at: (f64, f64), h: f64) -> Endpoint {
 impl PathTab {
     fn key(&self) -> String {
         format!(
-            "{:?}|{}|{:?}|{}|{}",
-            self.site, self.site_agl, self.target, self.target_agl, self.k
+            "{:?}|{}|{:?}|{}|{}|{}",
+            self.site, self.site_agl, self.target, self.target_agl, self.k, self.target_asl
         )
     }
 
@@ -128,11 +130,12 @@ impl PathTab {
             site: LatLon::new(self.site.0, self.site.1),
             tx_agl: self.site_agl.max(0.5),
             rx_agl: self.target_agl.max(0.5),
+            rx_above_sea: self.target_asl,
             radius,
             freq_mhz: self.freq,
             params: self.itm,
             radials: ((std::f64::consts::TAU * radius / 100.0).ceil() as usize).clamp(720, 4096),
-            step: 30.0,
+            step: (radius / 2000.0).max(30.0),
             stride: 2,
         }
     }
@@ -215,8 +218,15 @@ impl PathTab {
                     ep(self.target, self.target_agl),
                     self.k,
                 );
+                let (asl, alt) = (self.target_asl, self.target_agl);
                 self.job = Some(Job::spawn(ctx, "terrain", move |h| {
-                    h.send(Profile::fetch(&dem, a, b, kf, 30.0));
+                    h.send(Profile::fetch(&dem, a, b, kf, 30.0).map(|mut p| {
+                        if asl {
+                            let under = p.samples.last().map(|s| s.ground).unwrap_or(0.0);
+                            p.b.height_agl = (alt - under).max(0.5);
+                        }
+                        p
+                    }));
                 }));
             } else {
                 ctx.request_repaint_after(Duration::from_millis(420) - at.elapsed());
@@ -271,7 +281,10 @@ impl PathTab {
                 "height m",
                 "Above the ground under it, not above sea level. The ground comes from the terrain model.",
                 |ui| {
-                    ui.add(egui::DragValue::new(&mut self.site_agl).range(0.0..=500.0).speed(0.5));
+                    let speed = (self.site_agl * 0.01).max(0.5);
+                    ui.add(
+                        egui::DragValue::new(&mut self.site_agl).range(0.0..=3000.0).speed(speed),
+                    );
                 },
             );
         });
@@ -294,8 +307,27 @@ impl PathTab {
                 );
             });
             row(ui, "height m", |ui| {
-                ui.add(egui::DragValue::new(&mut self.target_agl).range(0.0..=500.0).speed(0.5));
+                let speed = (self.target_agl * 0.01).max(0.5);
+                ui.add(
+                    egui::DragValue::new(&mut self.target_agl).range(0.0..=20_000.0).speed(speed),
+                );
             });
+            row_help(
+                ui,
+                "measured",
+                "Above sea level for aircraft altitude, above the ground under it for a mast or a ship. Past 3 km Longley-Rice no longer applies, so the path is free space plus terrain and earth diffraction.",
+                |ui| {
+                    choice(
+                        ui,
+                        "height-datum",
+                        &mut self.target_asl,
+                        [
+                            (false, "above ground".to_string()),
+                            (true, "above sea level".to_string()),
+                        ],
+                    );
+                },
+            );
             row_help(
                 ui,
                 "k factor",
@@ -665,6 +697,9 @@ impl PathTab {
                     ("beyond free space", format!("{:.1} dB", loss - an.fspl_db), TRACE),
                     match &an.itm {
                         Ok(r) => ("mode", r.mode.label().to_string(), TRACE),
+                        Err(_) if an.airborne => {
+                            ("model", "free space + diffraction".to_string(), TRACE)
+                        }
                         Err(e) => ("model", e.to_string(), FAULT),
                     },
                     ("takeoff", format!("{:+.2}°", an.takeoff_deg), TRACE),

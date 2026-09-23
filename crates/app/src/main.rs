@@ -234,6 +234,14 @@ mod tests {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/shots");
         std::fs::create_dir_all(&dir).unwrap();
         h.state_mut().tab = Tab::Path;
+        if std::env::var("SHOT_PLANE").is_ok() {
+            let p = &mut h.state_mut().path;
+            p.target_asl = true;
+            p.target_agl = 10_000.0;
+            p.freq = 1090.0;
+            p.radius_km = 100.0;
+            p.target = (53.6, -10.9);
+        }
         h.run_steps(3);
         let ctx = h.ctx.clone();
         h.state_mut().path.start_coverage(&ctx);

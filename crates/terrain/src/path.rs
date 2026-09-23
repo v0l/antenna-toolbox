@@ -144,6 +144,7 @@ pub struct Analysis {
     pub diffraction_db: f64,
     pub itm: Result<itm::Result, itm::Error>,
     pub loss_db: f64,
+    pub airborne: bool,
     pub worst_clearance: f64,
     pub worst_at: f64,
     pub line_of_sight: bool,
@@ -291,6 +292,7 @@ pub fn analyse(p: &Profile, freq_mhz: f64, params: &Params) -> Analysis {
     let fspl = 20.0 * (4.0 * std::f64::consts::PI * d / lam).log10();
     Analysis {
         loss_db: itm.as_ref().map(|r| r.loss_db).unwrap_or(fspl + diffraction),
+        airborne: matches!(itm, Err(itm::Error::TerminalHeight)),
         itm,
         distance: d,
         bearing: p.a.at.bearing_to(p.b.at),
@@ -306,6 +308,51 @@ pub fn analyse(p: &Profile, freq_mhz: f64, params: &Params) -> Analysis {
         arrival_deg: arrival,
         obstacles,
     }
+}
+
+pub const ITM_CEILING: f64 = 3000.0;
+
+pub fn path_loss(
+    ground: &[f64],
+    step: f64,
+    h_a: f64,
+    h_b: f64,
+    freq_mhz: f64,
+    params: &Params,
+) -> f64 {
+    if h_a <= ITM_CEILING && h_b <= ITM_CEILING {
+        if let Ok(r) =
+            itm::point_to_point(h_a.max(0.5), h_b.max(0.5), ground, step, freq_mhz, params)
+        {
+            return r.loss_db;
+        }
+    }
+    free_space_and_diffraction(ground, step, h_a, h_b, freq_mhz, 4.0 / 3.0)
+}
+
+pub fn free_space_and_diffraction(
+    ground: &[f64],
+    step: f64,
+    h_a: f64,
+    h_b: f64,
+    freq_mhz: f64,
+    k: f64,
+) -> f64 {
+    let d = step * (ground.len() - 1) as f64;
+    let lam = C / (freq_mhz * 1e6);
+    let fspl = 20.0 * (4.0 * std::f64::consts::PI * d.max(1.0) / lam).log10();
+    let at = LatLon::new(0.0, 0.0);
+    let p = Profile::from_ground(
+        Endpoint { at, height_agl: h_a },
+        Endpoint { at: at.destination(90.0, d), height_agl: h_b },
+        k,
+        ground,
+    );
+    let (ha, hb) = (p.antenna_a(), p.antenna_b());
+    let floor = ground.iter().copied().fold(f64::INFINITY, f64::min);
+    let mut edges = Vec::new();
+    let knife = deygout(&p, lam, 0, ground.len() - 1, ha, hb, 1, &mut edges);
+    fspl + knife.max(smooth_earth_db(freq_mhz, d, ha - floor, hb - floor, k))
 }
 
 #[cfg(test)]
@@ -359,6 +406,24 @@ mod tests {
         );
         let rn = analyse(&near, 162.0, &Params::default());
         assert!(rn.line_of_sight && !rn.fresnel_clear && rn.diffraction_db < 6.0);
+    }
+
+    #[test]
+    fn an_aircraft_above_the_itm_ceiling_falls_back_to_free_space_and_diffraction() {
+        let sea = vec![0.0; 401];
+        let near = path_loss(&sea, 100.0, 10.0, 10_000.0, 1090.0, &Params::default());
+        let fspl = 20.0 * (4.0 * std::f64::consts::PI * 40_000.0 / (C / 1090e6)).log10();
+        assert!((near - fspl).abs() < 0.5, "{near} vs {fspl}");
+        let far: Vec<f64> = vec![0.0; 6001];
+        let beyond = path_loss(&far, 100.0, 10.0, 10_000.0, 1090.0, &Params::default());
+        let horizon =
+            (radio_horizon(10.0, 4.0 / 3.0) + radio_horizon(10_000.0, 4.0 / 3.0)) / 1000.0;
+        assert!(horizon < 600.0);
+        let fspl_far = 20.0 * (4.0 * std::f64::consts::PI * 600_000.0 / (C / 1090e6)).log10();
+        assert!(
+            beyond > fspl_far + 10.0,
+            "past the {horizon:.0} km horizon: {beyond} vs {fspl_far}"
+        );
     }
 
     #[test]
