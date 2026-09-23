@@ -11,7 +11,7 @@ use egui::{
 };
 use egui_bench::prelude::*;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use web_time::{Duration, Instant};
 
 pub const GROUNDS: [(&str, f64, f64); 9] = [
     ("average ground", 15.0, 0.005),
@@ -120,6 +120,8 @@ pub struct PathTab {
     coverage: Option<Arc<Coverage>>,
     overlay: Option<(String, TextureHandle)>,
     below: f32,
+    cov_waiting: bool,
+    fetching: Option<(usize, usize)>,
     pub site_pattern: PatternSlot,
     pub far_pattern: PatternSlot,
     dem: Dem,
@@ -162,6 +164,8 @@ impl Default for PathTab {
             coverage: None,
             overlay: None,
             below: 0.0,
+            cov_waiting: false,
+            fetching: None,
             site_pattern: PatternSlot::new("pattern.txt"),
             far_pattern: PatternSlot::new("pattern-far.txt").aimed(),
             dem: Dem::default(),
@@ -214,18 +218,96 @@ impl PathTab {
         self.cov_job.is_none() && self.coverage.is_some()
     }
 
+    fn path_tiles(&self) -> Vec<antenna_terrain::TileId> {
+        let (a, b) =
+            (LatLon::new(self.site.0, self.site.1), LatLon::new(self.target.0, self.target.1));
+        let n = (a.distance_to(b) / 1000.0).ceil().max(1.0) as usize;
+        let mut ids: Vec<antenna_terrain::TileId> = (0..=n)
+            .map(|i| {
+                let p = a.interpolate(b, i as f64 / n as f64);
+                antenna_terrain::TileId::containing(p.lat, p.lon)
+            })
+            .collect();
+        ids.dedup();
+        ids
+    }
+
+    fn tiles_ready(
+        &mut self,
+        ctx: &egui::Context,
+        ids: &[antenna_terrain::TileId],
+    ) -> Option<bool> {
+        match self.dem.ensure(ids) {
+            antenna_terrain::Readiness::Ready => {
+                self.fetching = None;
+                Some(true)
+            }
+            antenna_terrain::Readiness::Pending(k, of) => {
+                self.fetching = Some((k, of));
+                ctx.request_repaint_after(Duration::from_millis(250));
+                Some(false)
+            }
+            antenna_terrain::Readiness::Failed(e) => {
+                self.fetching = None;
+                self.error = Some(e);
+                self.dem.clear_failure();
+                self.cov_waiting = false;
+                None
+            }
+        }
+    }
+
     pub fn start_coverage(&mut self, ctx: &egui::Context) {
-        let (dem, spec) = (self.dem.clone(), self.coverage_spec());
+        let spec = self.coverage_spec();
+        let (s, w, n, e) = spec.bounds();
+        match self.tiles_ready(ctx, &Dem::tiles_in(s, w, n, e)) {
+            Some(true) => {}
+            Some(false) => {
+                self.cov_waiting = true;
+                return;
+            }
+            None => return,
+        }
+        self.cov_waiting = false;
+        let dem = self.dem.clone();
         self.cov_progress = Stage::Tiles(0, 0);
-        self.cov_job = Some(Job::spawn(ctx, "coverage", move |h| {
-            let res = coverage::compute(
-                &dem,
-                &spec,
-                &|f| _ = h.send(CovMsg::Progress(f)),
-                h.cancel_flag(),
-            );
-            h.send(CovMsg::Done(Box::new(res)));
-        }));
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.cov_job = Some(Job::spawn_async(ctx, move |h| async move {
+                let sampler = match dem.sampler(s, w, n, e, &|_, _| {}) {
+                    Ok(x) => x,
+                    Err(e) => {
+                        h.send(CovMsg::Done(Box::new(Err(e))));
+                        return;
+                    }
+                };
+                let height = |lat: f64, lon: f64| sampler.elevation(lat, lon);
+                let mut rows = Vec::with_capacity(spec.radials);
+                for r in 0..spec.radials {
+                    if h.cancelled() {
+                        return;
+                    }
+                    rows.push(coverage::radial(&height, &spec, r));
+                    if r % 24 == 23 {
+                        h.send(CovMsg::Progress(Stage::Radials(r as f32 / spec.radials as f32)));
+                        crate::webserial::yield_now().await;
+                    }
+                }
+                h.send(CovMsg::Done(Box::new(Ok(coverage::assemble(&spec, rows)))));
+            }));
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.cov_job = Some(Job::spawn(ctx, "coverage", move |h| {
+                let res = coverage::compute(
+                    &dem,
+                    &spec,
+                    &|f| _ = h.send(CovMsg::Progress(f)),
+                    h.cancel_flag(),
+                );
+                h.send(CovMsg::Done(Box::new(res)));
+            }));
+        }
     }
 
     pub fn site_gain(&self, bearing: f64, elevation: f64) -> f64 {
@@ -306,8 +388,20 @@ impl PathTab {
         if key != self.fetched_for && self.pending.as_ref().is_none_or(|(k, _)| *k != key) {
             self.pending = Some((key, Instant::now()));
         }
+        if self.cov_waiting && self.cov_job.is_none() {
+            self.start_coverage(ctx);
+        }
         if let Some((k, at)) = self.pending.clone() {
-            if at.elapsed() > Duration::from_millis(400) {
+            let ready = if at.elapsed() > Duration::from_millis(400) {
+                self.tiles_ready(ctx, &self.path_tiles())
+            } else {
+                Some(false)
+            };
+            if ready.is_none() {
+                self.pending = None;
+                self.fetched_for = k.clone();
+            }
+            if ready == Some(true) {
                 self.pending = None;
                 self.fetched_for = k;
                 let (dem, a, b, kf) = (
@@ -326,8 +420,12 @@ impl PathTab {
                         p
                     }));
                 }));
-            } else {
-                ctx.request_repaint_after(Duration::from_millis(420) - at.elapsed());
+            } else if ready.is_some() {
+                ctx.request_repaint_after(
+                    Duration::from_millis(420)
+                        .saturating_sub(at.elapsed())
+                        .max(Duration::from_millis(50)),
+                );
             }
         }
         let done = self.job.as_mut().map(|j| j.poll()).unwrap_or_default();
@@ -641,8 +739,10 @@ impl PathTab {
     fn central_body(&mut self, ui: &mut Ui) -> f32 {
         let dropped = ui.ctx().input(|i| i.raw.dropped_files.clone());
         for f in dropped {
-            if let Some(path) = f.path {
-                self.site_pattern.load_file(&path.display().to_string());
+            match (&f.bytes, &f.path) {
+                (Some(b), _) => self.site_pattern.load_text(&f.name, &String::from_utf8_lossy(b)),
+                (None, Some(path)) => self.site_pattern.load_file(&path.display().to_string()),
+                _ => {}
             }
         }
         let freq = self.freq;
@@ -789,6 +889,15 @@ impl PathTab {
 
         if let Some(e) = &self.error {
             status(ui, false, e);
+        }
+        if let Some((k, of)) = self.fetching {
+            progress(
+                ui,
+                "terrain",
+                k as f32,
+                Some(of as f32),
+                "fetching Copernicus GLO-30 tiles, about 25 MB each",
+            );
         }
         if self.job.is_some() {
             progress(

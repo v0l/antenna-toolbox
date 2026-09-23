@@ -4,6 +4,7 @@ use egui::{
 };
 use egui_bench::theme;
 use std::collections::HashMap;
+#[cfg(not(target_arch = "wasm32"))]
 use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex};
@@ -11,7 +12,9 @@ use std::sync::{Arc, Mutex};
 pub const TILE_PX: f64 = 256.0;
 const URL: &str = "https://tile.openstreetmap.org";
 const CACHE_MAX: usize = 512;
+#[cfg(not(target_arch = "wasm32"))]
 const IN_FLIGHT: usize = 2;
+#[cfg(not(target_arch = "wasm32"))]
 const USER_AGENT: &str = concat!(
     "antenna-toolbox/",
     env!("CARGO_PKG_VERSION"),
@@ -42,6 +45,8 @@ pub struct Tiles {
     error: Option<String>,
     failures: usize,
     ctx: Arc<Mutex<Option<Context>>>,
+    #[cfg(target_arch = "wasm32")]
+    done_tx: Sender<Done>,
 }
 
 impl Default for Tiles {
@@ -51,6 +56,40 @@ impl Default for Tiles {
 }
 
 impl Tiles {
+    #[cfg(target_arch = "wasm32")]
+    pub fn new() -> Self {
+        let (done_tx, done) = channel();
+        Self {
+            slots: HashMap::new(),
+            order: Vec::new(),
+            queue: Arc::default(),
+            wake: Vec::new(),
+            done,
+            error: None,
+            failures: 0,
+            ctx: Arc::default(),
+            done_tx,
+        }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn request(&self, id: TileId) {
+        let (tx, ctx) = (self.done_tx.clone(), self.ctx.clone());
+        let url = format!("{URL}/{}/{}/{}.png", id.z, id.x, id.y);
+        ehttp::fetch(ehttp::Request::get(&url), move |res| {
+            let out = match res {
+                Ok(r) if r.ok => decode(&r.bytes).map_err(|e| format!("{url}: {e}")),
+                Ok(r) => Err(format!("{url}: HTTP {}", r.status)),
+                Err(e) => Err(format!("{url}: {e}")),
+            };
+            let _ = tx.send((id, out));
+            if let Some(c) = ctx.lock().ok().and_then(|c| c.clone()) {
+                c.request_repaint();
+            }
+        });
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn new() -> Self {
         let queue: Arc<Mutex<Vec<TileId>>> = Arc::default();
         let ctx: Arc<Mutex<Option<Context>>> = Arc::default();
@@ -133,6 +172,8 @@ impl Tiles {
         if let std::collections::hash_map::Entry::Vacant(e) = self.slots.entry(id) {
             e.insert(Slot::Loading);
             self.order.push(id);
+            #[cfg(target_arch = "wasm32")]
+            self.request(id);
             if let Ok(mut q) = self.queue.lock() {
                 q.push(id);
             }
@@ -163,12 +204,14 @@ impl Tiles {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn cache_dir() -> Option<PathBuf> {
     let dir = dirs::cache_dir()?.join("antenna-toolbox").join("tiles");
     std::fs::create_dir_all(&dir).ok()?;
     Some(dir)
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn load(agent: &ureq::Agent, id: TileId, path: Option<PathBuf>) -> Result<ColorImage, String> {
     if let Some(p) = path.as_deref()
         && let Ok(bytes) = std::fs::read(p)

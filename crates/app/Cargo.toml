@@ -4,6 +4,9 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[lib]
+crate-type = ["cdylib", "rlib"]
+
 [dependencies]
 antenna-solver.workspace = true
 antenna-designs.workspace = true
@@ -12,9 +15,19 @@ antenna-terrain.workspace = true
 egui.workspace = true
 eframe.workspace = true
 egui_bench.workspace = true
-ureq.workspace = true
 dirs.workspace = true
 image = { version = "0.25", default-features = false, features = ["png"] }
+web-time.workspace = true
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+ureq.workspace = true
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+ehttp.workspace = true
+wasm-bindgen.workspace = true
+wasm-bindgen-futures.workspace = true
+js-sys.workspace = true
+web-sys.workspace = true
 
 [dev-dependencies]
 egui_kittest = { version = "0.35", features = ["wgpu", "eframe"] }

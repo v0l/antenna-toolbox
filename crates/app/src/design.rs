@@ -21,7 +21,7 @@ use egui::{Color32, Ui};
 use egui_bench::prelude::*;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use web_time::{Duration, Instant};
 
 const SWEEP_POINTS: usize = 21;
 const GAIN_POINTS: usize = 11;
@@ -606,18 +606,8 @@ impl DesignTab {
                 return;
             }
         };
-        let dir = dirs::download_dir().or_else(dirs::home_dir).unwrap_or_default();
-        let slug: String = self
-            .name()
-            .to_lowercase()
-            .chars()
-            .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-            .collect();
-        let path = dir.join(format!("{slug}-{}mhz.pattern", self.freq.round()));
-        self.note = Some(match std::fs::write(&path, p.to_text()) {
-            Ok(()) => format!("wrote {}", path.display()),
-            Err(e) => format!("could not write {}: {e}", path.display()),
-        });
+        let file = format!("{}-{}mhz.pattern", slug(&self.name()), self.freq.round());
+        self.note = Some(crate::store::download(&file, &p.to_text()));
     }
 
     fn export_nec(&mut self) {
@@ -636,17 +626,8 @@ impl DesignTab {
                 return;
             }
         };
-        let dir = dirs::download_dir().or_else(dirs::home_dir).unwrap_or_default();
-        let slug: String = name
-            .to_lowercase()
-            .chars()
-            .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-            .collect();
-        let path = dir.join(format!("{slug}-{}mhz.nec", self.freq.round()));
-        self.note = Some(match std::fs::write(&path, deck) {
-            Ok(()) => format!("wrote {}", path.display()),
-            Err(e) => format!("could not write {}: {e}", path.display()),
-        });
+        let file = format!("{}-{}mhz.nec", slug(&name), self.freq.round());
+        self.note = Some(crate::store::download(&file, &deck));
     }
 
     pub fn sidebar(&mut self, ui: &mut Ui) {
@@ -955,13 +936,8 @@ impl DesignTab {
                         note(ui, &cut.note, LEGEND);
                         if ui.button(action("save DXF")).clicked() {
                             let text = cut_to_dxf(&cut, design.name, self.freq);
-                            let dir =
-                                dirs::download_dir().or_else(dirs::home_dir).unwrap_or_default();
-                            let path = dir.join(dxf_filename(design.name, self.freq));
-                            self.note = Some(match std::fs::write(&path, text) {
-                                Ok(()) => format!("wrote {}", path.display()),
-                                Err(e) => format!("could not write {}: {e}", path.display()),
-                            });
+                            let file = dxf_filename(design.name, self.freq);
+                            self.note = Some(crate::store::download(&file, &text));
                         }
                     });
                     ui.add_space(8.0);
@@ -1312,4 +1288,8 @@ fn match_panel(ui: &mut Ui, plan: &MatchPlan, z: C64, freq: f64, fmt: &dyn Fn(f6
             note(ui, c, READOUT);
         }
     });
+}
+
+fn slug(name: &str) -> String {
+    name.to_lowercase().chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '-' }).collect()
 }

@@ -1,3 +1,4 @@
+#[cfg(not(target_arch = "wasm32"))]
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::io::Cursor;
@@ -31,12 +32,13 @@ impl TileId {
 
     pub fn url(self) -> String {
         let n = self.name();
-        format!("{BASE}/{n}/{n}.tif")
+        format!("{}/{n}/{n}.tif", source())
     }
 }
 
 enum Samples {
     Owned(Vec<f32>),
+    #[cfg(not(target_arch = "wasm32"))]
     Mapped(memmap2::Mmap),
 }
 
@@ -51,7 +53,9 @@ pub struct Tile {
     data: Samples,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 const MAGIC: &[u8; 8] = b"ATDEM001";
+#[cfg(not(target_arch = "wasm32"))]
 const HEADER: usize = 64;
 
 impl Tile {
@@ -82,6 +86,7 @@ impl Tile {
         })
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn write_raw(&self, path: &Path) -> Result<(), String> {
         let Samples::Owned(data) = &self.data else {
             return Ok(());
@@ -103,6 +108,7 @@ impl Tile {
         std::fs::rename(&tmp, path).map_err(|e| e.to_string())
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn open_raw(path: &Path) -> Result<Tile, String> {
         let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
         let map = unsafe { memmap2::Mmap::map(&file) }.map_err(|e| e.to_string())?;
@@ -130,6 +136,7 @@ impl Tile {
         let i = y.min(self.height - 1) * self.width + x.min(self.width - 1);
         match &self.data {
             Samples::Owned(v) => v[i] as f64,
+            #[cfg(not(target_arch = "wasm32"))]
             Samples::Mapped(m) => {
                 let o = HEADER + i * 4;
                 f32::from_le_bytes([m[o], m[o + 1], m[o + 2], m[o + 3]]) as f64
@@ -152,27 +159,41 @@ impl Tile {
 pub struct Dem {
     cache: PathBuf,
     tiles: Arc<Mutex<HashMap<TileId, Option<Arc<Tile>>>>>,
+    #[cfg(target_arch = "wasm32")]
+    flying: Arc<Mutex<std::collections::HashSet<TileId>>>,
+    #[cfg(target_arch = "wasm32")]
+    failed: Arc<Mutex<Option<String>>>,
 }
 
 impl Default for Dem {
     fn default() -> Self {
-        let cache = dirs::cache_dir()
-            .unwrap_or_else(std::env::temp_dir)
-            .join("antenna-toolbox")
-            .join("copernicus-glo30");
+        let base = if cfg!(target_arch = "wasm32") {
+            PathBuf::new()
+        } else {
+            dirs::cache_dir().unwrap_or_else(std::env::temp_dir)
+        };
+        let cache = base.join("antenna-toolbox").join("copernicus-glo30");
         Dem::with_cache(cache)
     }
 }
 
 impl Dem {
     pub fn with_cache(cache: PathBuf) -> Self {
-        Dem { cache, tiles: Arc::new(Mutex::new(HashMap::new())) }
+        Dem {
+            cache,
+            tiles: Arc::new(Mutex::new(HashMap::new())),
+            #[cfg(target_arch = "wasm32")]
+            flying: Arc::default(),
+            #[cfg(target_arch = "wasm32")]
+            failed: Arc::default(),
+        }
     }
 
     pub fn cache_dir(&self) -> &Path {
         &self.cache
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn download(&self, id: TileId) -> Result<Option<Vec<u8>>, String> {
         let file = self.cache.join(format!("{}.tif", id.name()));
         if let Ok(bytes) = std::fs::read(&file) {
@@ -193,6 +214,7 @@ impl Dem {
         }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn load(&self, id: TileId) -> Result<Option<Tile>, String> {
         let raw = self.cache.join(format!("{}.f32", id.name()));
         let missing = self.cache.join(format!("{}.missing", id.name()));
@@ -218,6 +240,16 @@ impl Dem {
         if let Some(t) = self.tiles.lock().map_err(|_| "poisoned")?.get(&id) {
             return Ok(t.clone());
         }
+        self.load_now(id)
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn load_now(&self, id: TileId) -> Result<Option<Arc<Tile>>, String> {
+        Err(format!("{} has not been fetched yet", id.name()))
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn load_now(&self, id: TileId) -> Result<Option<Arc<Tile>>, String> {
         let tile = self.load(id)?.map(Arc::new);
         self.tiles.lock().map_err(|_| "poisoned")?.insert(id, tile.clone());
         Ok(tile)
@@ -242,8 +274,19 @@ impl Dem {
     ) -> Result<Sampler, String> {
         let ids = Self::tiles_in(south, west, north, east);
         let done = std::sync::atomic::AtomicUsize::new(0);
+        #[cfg(target_arch = "wasm32")]
+        let fetched: Vec<Result<Loaded, String>> = ids
+            .iter()
+            .map(|&id| {
+                let t = self.tile(id)?;
+                progress(done.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1, ids.len());
+                Ok((id, t))
+            })
+            .collect();
+        #[cfg(not(target_arch = "wasm32"))]
         let pool =
             rayon::ThreadPoolBuilder::new().num_threads(6).build().map_err(|e| e.to_string())?;
+        #[cfg(not(target_arch = "wasm32"))]
         let fetched: Vec<Result<Loaded, String>> = pool.install(|| {
             ids.par_iter()
                 .with_max_len(1)
@@ -259,12 +302,103 @@ impl Dem {
         Ok(Sampler { tiles })
     }
 
+    pub fn ensure(&self, ids: &[TileId]) -> Readiness {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let _ = ids;
+            Readiness::Ready
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let Ok(have) = self.tiles.lock() else {
+                return Readiness::Failed("tile cache poisoned".into());
+            };
+            let mut wanted = Vec::new();
+            let mut done = 0;
+            for &id in ids {
+                if have.contains_key(&id) {
+                    done += 1;
+                } else {
+                    wanted.push(id);
+                }
+            }
+            drop(have);
+            if let Some(e) = self.failed.lock().ok().and_then(|f| f.clone()) {
+                return Readiness::Failed(e);
+            }
+            for id in wanted {
+                self.fetch_async(id);
+            }
+            if done == ids.len() { Readiness::Ready } else { Readiness::Pending(done, ids.len()) }
+        }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn fetch_async(&self, id: TileId) {
+        let Ok(mut flying) = self.flying.lock() else {
+            return;
+        };
+        if !flying.insert(id) {
+            return;
+        }
+        let (tiles, failed, flying_set) =
+            (self.tiles.clone(), self.failed.clone(), self.flying.clone());
+        let url = id.url();
+        ehttp::fetch(ehttp::Request::get(url), move |res| {
+            let outcome = match res {
+                Ok(r) if r.ok => Tile::decode(&r.bytes).map(|t| Some(Arc::new(t))),
+                Ok(r) if r.status == 403 || r.status == 404 => Ok(None),
+                Ok(r) => Err(format!("{}: HTTP {}", id.name(), r.status)),
+                Err(e) => Err(format!("{}: {e}", id.name())),
+            };
+            match outcome {
+                Ok(t) => {
+                    if let Ok(mut m) = tiles.lock() {
+                        m.insert(id, t);
+                    }
+                }
+                Err(e) => {
+                    if let Ok(mut f) = failed.lock() {
+                        *f = Some(e);
+                    }
+                }
+            }
+            if let Ok(mut f) = flying_set.lock() {
+                f.remove(&id);
+            }
+        });
+    }
+
+    pub fn clear_failure(&self) {
+        #[cfg(target_arch = "wasm32")]
+        if let Ok(mut f) = self.failed.lock() {
+            *f = None;
+        }
+    }
+
     pub fn elevation(&self, lat: f64, lon: f64) -> Result<f64, String> {
         Ok(self.tile(TileId::containing(lat, lon))?.map(|t| t.sample(lat, lon)).unwrap_or(0.0))
     }
 }
 
 type Loaded = (TileId, Option<Arc<Tile>>);
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum Readiness {
+    Ready,
+    Pending(usize, usize),
+    Failed(String),
+}
+
+static SOURCE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+pub fn set_source(url: &str) {
+    let _ = SOURCE.set(url.trim_end_matches('/').to_string());
+}
+
+pub fn source() -> &'static str {
+    SOURCE.get().map(String::as_str).unwrap_or(BASE)
+}
 
 pub struct Sampler {
     tiles: HashMap<TileId, Option<Arc<Tile>>>,

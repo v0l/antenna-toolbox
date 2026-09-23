@@ -6,4 +6,7 @@ license.workspace = true
 
 [dependencies]
 num-complex.workspace = true
+web-time.workspace = true
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 serialport.workspace = true

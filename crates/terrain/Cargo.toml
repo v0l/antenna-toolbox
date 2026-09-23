@@ -6,8 +6,14 @@ license.workspace = true
 
 [dependencies]
 tiff.workspace = true
-memmap2.workspace = true
-ureq.workspace = true
 dirs.workspace = true
+
 num-complex.workspace = true
 rayon.workspace = true
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+memmap2.workspace = true
+ureq.workspace = true
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+ehttp.workspace = true

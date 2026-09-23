@@ -4,5 +4,5 @@ pub mod itm;
 pub mod path;
 pub mod pattern;
 
-pub use dem::{Dem, TileId};
+pub use dem::{Dem, Readiness, TileId};
 pub use path::{Analysis, Endpoint, LatLon, Profile, analyse, radio_horizon};

@@ -3,7 +3,7 @@ use crate::design::fmt_z;
 use crate::traces::{self, Trace};
 use crate::worker::Job;
 use antenna_solver::solve::swr_of;
-use antenna_vna::{C64, Calibration, Point, Port, Standard, detect, open};
+use antenna_vna::{C64, Calibration, Point, Port, Standard, detect};
 use egui::Ui;
 use egui_bench::prelude::*;
 use std::sync::mpsc::{Sender, channel};
@@ -103,13 +103,53 @@ pub fn resonance(pts: &[Point], z0: f64) -> Option<Resonance> {
 }
 
 impl VnaTab {
+    #[cfg(target_arch = "wasm32")]
+    fn connect_web(&mut self, ctx: &egui::Context) {
+        use crate::webserial::{Session, next_request};
+        let (tx, rx) = channel::<(f64, f64, usize)>();
+        let job = Job::spawn_async(ctx, move |h| async move {
+            let mut s = match Session::open().await {
+                Ok(s) => s,
+                Err(e) => {
+                    h.send(Reply::Closed(e));
+                    return;
+                }
+            };
+            let device_cal = s.cal_status().await;
+            h.send(Reply::Connected {
+                describe: s.describe.clone(),
+                device_cal,
+                max_points: s.max_points,
+            });
+            while let Some((a, b, n)) = next_request(&rx, || !h.cancelled()).await {
+                let r = s.sweep(a * 1e6, b * 1e6, n).await;
+                let failed = r.is_err();
+                if !h.send(Reply::Swept(r)) || failed {
+                    h.send(Reply::Closed("device stopped answering".into()));
+                    break;
+                }
+            }
+            s.close().await;
+        });
+        self.link = Some(Link { tx, job });
+        self.message = None;
+    }
+
     fn connect(&mut self, ctx: &egui::Context) {
+        #[cfg(target_arch = "wasm32")]
+        self.connect_web(ctx);
+        #[cfg(not(target_arch = "wasm32"))]
+        self.connect_native(ctx);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn connect_native(&mut self, ctx: &egui::Context) {
         let Some(port) = self.ports.get(self.selected).cloned() else {
             return;
         };
         let (tx, rx) = channel::<(f64, f64, usize)>();
         let job = Job::spawn(ctx, "vna", move |h| {
-            let mut vna = match open(&port) {
+            let mut vna = match antenna_vna::open(&port) {
                 Ok(v) => v,
                 Err(e) => {
                     h.send(Reply::Closed(format!("{}: {e}", port.path)));
@@ -229,7 +269,24 @@ impl VnaTab {
     pub fn sidebar(&mut self, ui: &mut Ui) {
         let ctx = ui.ctx().clone();
         section(ui, "device", "USB serial", |ui| {
-            if self.ports.is_empty() {
+            let web = cfg!(target_arch = "wasm32");
+            #[cfg(target_arch = "wasm32")]
+            let serial = crate::webserial::vna_supported();
+            #[cfg(not(target_arch = "wasm32"))]
+            let serial = false;
+            if web && serial {
+                note(
+                    ui,
+                    "Connect, then pick the NanoVNA in the browser's list. Web Serial speaks to the NanoVNA-H and H4 text shell.",
+                    LEGEND,
+                );
+            } else if web {
+                note(
+                    ui,
+                    "This browser has no Web Serial. Use Chrome or Edge, or the desktop app.",
+                    LEGEND,
+                );
+            } else if self.ports.is_empty() {
                 note(ui, "No NanoVNA found. Plug one in and rescan.", LEGEND);
             }
             for (i, p) in self.ports.iter().enumerate() {
@@ -240,14 +297,14 @@ impl VnaTab {
                 }
             }
             ui.horizontal(|ui| {
-                if ui.button(action("rescan")).clicked() {
+                if !web && ui.button(action("rescan")).clicked() {
                     self.ports = detect();
                 }
                 match self.link.is_some() {
                     false => {
                         if ui
                             .add_enabled(
-                                !self.ports.is_empty(),
+                                if web { serial } else { !self.ports.is_empty() },
                                 egui::Button::new(action("connect")),
                             )
                             .clicked()

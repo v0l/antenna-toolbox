@@ -12,7 +12,7 @@ use crate::vec::Vec3;
 use num_complex::Complex64 as C64;
 use std::f64::consts::PI;
 use std::sync::Arc;
-use std::time::Instant;
+use web_time::Instant;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Backend {

@@ -1,9 +1,14 @@
 mod cal;
+#[cfg(not(target_arch = "wasm32"))]
 mod nanovna_h;
+#[cfg(not(target_arch = "wasm32"))]
 mod nanovna_v2;
+pub mod shell;
 
 pub use cal::{Calibration, Standard};
+#[cfg(not(target_arch = "wasm32"))]
 pub use nanovna_h::NanoVnaH;
+#[cfg(not(target_arch = "wasm32"))]
 pub use nanovna_v2::NanoVnaV2;
 pub use num_complex::Complex64 as C64;
 
@@ -11,6 +16,7 @@ use std::fmt;
 
 #[derive(Debug)]
 pub enum Error {
+    #[cfg(not(target_arch = "wasm32"))]
     Serial(serialport::Error),
     Io(std::io::Error),
     Protocol(String),
@@ -19,6 +25,7 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            #[cfg(not(target_arch = "wasm32"))]
             Error::Serial(e) => write!(f, "serial: {e}"),
             Error::Io(e) => write!(f, "io: {e}"),
             Error::Protocol(e) => write!(f, "protocol: {e}"),
@@ -28,6 +35,7 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
+#[cfg(not(target_arch = "wasm32"))]
 impl From<serialport::Error> for Error {
     fn from(e: serialport::Error) -> Self {
         Error::Serial(e)
@@ -84,22 +92,9 @@ pub trait Vna: Send {
         points: usize,
         s21: bool,
     ) -> Result<Vec<Point>> {
-        let points = points.max(2);
-        let chunk = self.max_points().max(2);
-        if points <= chunk {
-            return self.scan(start_hz, stop_hz, points, s21);
-        }
-        let step = (stop_hz - start_hz) / (points - 1) as f64;
         let mut out = Vec::with_capacity(points);
-        let mut i = 0;
-        while i < points {
-            let n = chunk.min(points - i);
-            let n = if n == 1 { 2 } else { n };
-            let a = start_hz + step * i as f64;
-            let b = a + step * (n - 1) as f64;
-            let part = self.scan(a, b, n, s21)?;
-            out.extend(part.into_iter().take(points - i));
-            i += n;
+        for (a, b, n, keep) in shell::chunks(start_hz, stop_hz, points, self.max_points()) {
+            out.extend(self.scan(a, b, n, s21)?.into_iter().take(keep));
         }
         Ok(out)
     }
@@ -127,6 +122,17 @@ pub struct Port {
     pub product: String,
 }
 
+#[cfg(target_arch = "wasm32")]
+pub fn detect() -> Vec<Port> {
+    Vec::new()
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn open(_: &Port) -> Result<Box<dyn Vna>> {
+    Err(Error::Protocol("serial ports are reached through Web Serial in the browser".into()))
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 pub fn detect() -> Vec<Port> {
     let Ok(ports) = serialport::available_ports() else {
         return Vec::new();
@@ -151,6 +157,7 @@ pub fn detect() -> Vec<Port> {
         .collect()
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub fn open(port: &Port) -> Result<Box<dyn Vna>> {
     Ok(match port.kind {
         Kind::NanoVnaH => Box::new(NanoVnaH::open(&port.path)?),

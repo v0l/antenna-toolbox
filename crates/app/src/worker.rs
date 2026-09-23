@@ -25,6 +25,7 @@ impl<T> Handle<T> {
         self.cancel.load(Ordering::Relaxed)
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn cancel_flag(&self) -> &AtomicBool {
         &self.cancel
     }
@@ -39,10 +40,28 @@ impl<T: Send + 'static> Job<T> {
         let (tx, rx) = channel();
         let cancel = Arc::new(AtomicBool::new(false));
         let handle = Handle { tx, cancel: cancel.clone(), ctx: ctx.clone() };
+        #[cfg(not(target_arch = "wasm32"))]
         std::thread::Builder::new()
             .name(name.into())
             .spawn(move || f(handle))
             .expect("spawn worker");
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = name;
+            wasm_bindgen_futures::spawn_local(async move { f(handle) });
+        }
+        Job { rx, cancel }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn spawn_async<F: std::future::Future<Output = ()> + 'static>(
+        ctx: &egui::Context,
+        f: impl FnOnce(Handle<T>) -> F,
+    ) -> Self {
+        let (tx, rx) = channel();
+        let cancel = Arc::new(AtomicBool::new(false));
+        let handle = Handle { tx, cancel: cancel.clone(), ctx: ctx.clone() };
+        wasm_bindgen_futures::spawn_local(f(handle));
         Job { rx, cancel }
     }
 

@@ -32,19 +32,11 @@ impl PatternSlot {
         self
     }
 
-    fn store(&self) -> Option<std::path::PathBuf> {
-        if cfg!(test) {
-            return None;
-        }
-        Some(dirs::config_dir()?.join("antenna-toolbox").join(self.file))
-    }
-
     pub fn restore(&mut self) {
-        if let Some(p) = self
-            .store()
-            .and_then(|f| std::fs::read_to_string(f).ok())
-            .and_then(|t| Pattern::from_text(&t).ok())
-        {
+        if cfg!(test) {
+            return;
+        }
+        if let Some(p) = crate::store::read(self.file).and_then(|t| Pattern::from_text(&t).ok()) {
             self.pattern = Some(Arc::new(p));
         }
     }
@@ -69,11 +61,8 @@ impl PatternSlot {
     }
 
     pub fn set(&mut self, p: Pattern) {
-        if let Some(f) = self.store() {
-            if let Some(dir) = f.parent() {
-                let _ = std::fs::create_dir_all(dir);
-            }
-            let _ = std::fs::write(f, p.to_text());
+        if !cfg!(test) {
+            crate::store::write(self.file, &p.to_text());
         }
         self.msg = Some((true, format!("loaded {}", p.name)));
         self.pattern = Some(Arc::new(p));
@@ -84,11 +73,19 @@ impl PatternSlot {
     }
 
     fn clear(&mut self) {
-        if let Some(f) = self.store() {
-            let _ = std::fs::remove_file(f);
+        if !cfg!(test) {
+            crate::store::remove(self.file);
         }
         self.pattern = None;
         self.msg = None;
+    }
+
+    pub fn load_text(&mut self, name: &str, text: &str) {
+        self.path = name.to_string();
+        match parse_pattern(name, text, None) {
+            Ok(p) => self.set(p),
+            Err(e) => self.failed(e),
+        }
     }
 
     pub fn load_file(&mut self, path: &str) {
@@ -218,20 +215,30 @@ pub fn read_pattern(path: &str) -> Result<Pattern, String> {
     let read = |p: &std::path::Path| {
         std::fs::read_to_string(p).map_err(|e| format!("{}: {e}", p.display()))
     };
-    let name = p.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
     let ext = p.extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
     if ext == "az" || ext == "el" {
-        let az = p.with_extension("az");
         let el = p.with_extension("el");
         let el_text = el.exists().then(|| read(&el)).transpose()?;
-        return Pattern::from_splat(&name, &read(&az)?, el_text.as_deref());
+        return parse_pattern(
+            &p.with_extension("az").display().to_string(),
+            &read(&p.with_extension("az"))?,
+            el_text.as_deref(),
+        );
     }
-    let text = read(p)?;
-    if text.starts_with("# antenna-toolbox pattern") {
-        Pattern::from_text(&text)
+    parse_pattern(path, &read(p)?, None)
+}
+
+pub fn parse_pattern(name: &str, text: &str, el: Option<&str>) -> Result<Pattern, String> {
+    let p = std::path::Path::new(name);
+    let stem = p.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    let ext = p.extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+    if ext == "az" {
+        Pattern::from_splat(&stem, text, el)
+    } else if text.starts_with("# antenna-toolbox pattern") {
+        Pattern::from_text(text)
     } else if text.contains("RADIATION PATTERNS") {
-        Pattern::from_nec_output(&name, &text)
+        Pattern::from_nec_output(&stem, text)
     } else {
-        Err(format!("{path}: not a pattern, NEC-2 output or SPLAT! file"))
+        Err(format!("{name}: not a pattern, NEC-2 output or SPLAT! .az file"))
     }
 }

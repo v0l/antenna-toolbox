@@ -1,10 +1,5 @@
 use crate::App;
 use std::collections::BTreeMap;
-use std::path::PathBuf;
-
-fn file() -> Option<PathBuf> {
-    Some(dirs::config_dir()?.join("antenna-toolbox").join("state.txt"))
-}
 
 fn leak(s: String) -> &'static str {
     Box::leak(s.into_boxed_str())
@@ -55,18 +50,12 @@ pub fn snapshot(app: &App) -> BTreeMap<&'static str, String> {
 }
 
 pub fn save(app: &App) {
-    let Some(path) = file() else {
-        return;
-    };
     let text: String = snapshot(app).iter().map(|(k, v)| format!("{k}={v}\n")).collect();
-    if let Some(dir) = path.parent() {
-        let _ = std::fs::create_dir_all(dir);
-    }
-    let _ = std::fs::write(path, text);
+    crate::store::write("state.txt", &text);
 }
 
 pub fn load(app: &mut App) {
-    let Some(text) = file().and_then(|p| std::fs::read_to_string(p).ok()) else {
+    let Some(text) = crate::store::read("state.txt") else {
         return;
     };
     let m: BTreeMap<&str, &str> = text.lines().filter_map(|l| l.split_once('=')).collect();

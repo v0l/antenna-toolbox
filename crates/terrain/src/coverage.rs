@@ -85,83 +85,68 @@ pub fn stride_for(radius: f64, step: f64) -> usize {
     ((radius / step / 1500.0).ceil() as usize).max(2)
 }
 
-pub fn compute_with(
-    elevation: &(dyn Fn(f64, f64) -> f64 + Sync),
-    spec: &Spec,
-    progress: &(dyn Fn(f32) + Sync),
-    cancel: &AtomicBool,
-) -> Option<Coverage> {
-    let samples = (spec.radius / spec.step).floor() as usize;
-    let bins = samples / spec.stride;
-    let bin = spec.step * spec.stride as f64;
-    let done = AtomicUsize::new(0);
-    let rows: Vec<[Vec<f32>; 4]> = (0..spec.radials)
-        .into_par_iter()
-        .map(|r| {
-            if cancel.load(Ordering::Relaxed) {
-                return [vec![f32::NAN; bins], vec![0.0; bins], vec![0.0; bins], vec![0.0; bins]];
-            }
-            let bearing = r as f64 * 360.0 / spec.radials as f64;
-            let ground: Vec<f64> = (0..=samples)
-                .map(|i| {
-                    let q = spec.site.destination(bearing, i as f64 * spec.step);
-                    elevation(q.lat, q.lon).max(0.0)
-                })
-                .collect();
-            let mut loss = Vec::with_capacity(bins);
-            let mut height = Vec::with_capacity(bins);
-            let mut takeoff = Vec::with_capacity(bins);
-            let mut arrival = Vec::with_capacity(bins);
-            let curve = 2.0 * (4.0 / 3.0) * EARTH_RADIUS;
-            let tx_abs = ground[0] + spec.tx_agl;
-            let angle = |j: usize, top: f64| {
-                let d = j as f64 * spec.step;
-                ((top - tx_abs) / d - d / curve).atan()
-            };
-            let mut horizon = f64::NEG_INFINITY;
-            let mut seen = 1;
-            for b in 1..=bins {
-                let i = b * spec.stride;
-                height.push(ground[i] as f32);
-                while seen < i {
-                    horizon = horizon.max(angle(seen, ground[seen]));
-                    seen += 1;
-                }
-                let rx = if spec.rx_above_sea {
-                    (spec.rx_agl - ground[i]).max(0.5)
-                } else {
-                    spec.rx_agl
-                };
-                let l = if i < 2 {
-                    f64::NAN
-                } else {
-                    path_loss(
-                        &ground[..=i],
-                        spec.step,
-                        spec.tx_agl,
-                        rx,
-                        spec.freq_mhz,
-                        &spec.params,
-                    )
-                };
-                loss.push(l as f32);
-                takeoff.push(angle(i, ground[i] + rx).max(horizon).to_degrees() as f32);
-                arrival.push(if i < 2 {
-                    0.0
-                } else {
-                    arrival_angle(&ground[..=i], spec.step, spec.tx_agl, rx, 4.0 / 3.0) as f32
-                });
-            }
-            let k = done.fetch_add(1, Ordering::Relaxed) + 1;
-            if k.is_multiple_of(16) {
-                progress(k as f32 / spec.radials as f32);
-            }
-            [loss, height, takeoff, arrival]
+pub struct Grid {
+    samples: usize,
+    pub bins: usize,
+    pub bin: f64,
+}
+
+impl Grid {
+    pub fn of(spec: &Spec) -> Grid {
+        let samples = (spec.radius / spec.step).floor() as usize;
+        Grid { samples, bins: samples / spec.stride, bin: spec.step * spec.stride as f64 }
+    }
+}
+
+pub type Radial = [Vec<f32>; 4];
+
+pub fn radial(elevation: &(dyn Fn(f64, f64) -> f64 + Sync), spec: &Spec, r: usize) -> Radial {
+    let Grid { samples, bins, .. } = Grid::of(spec);
+    let bearing = r as f64 * 360.0 / spec.radials as f64;
+    let ground: Vec<f64> = (0..=samples)
+        .map(|i| {
+            let q = spec.site.destination(bearing, i as f64 * spec.step);
+            elevation(q.lat, q.lon).max(0.0)
         })
         .collect();
-    if cancel.load(Ordering::Relaxed) {
-        return None;
+    let mut loss = Vec::with_capacity(bins);
+    let mut height = Vec::with_capacity(bins);
+    let mut takeoff = Vec::with_capacity(bins);
+    let mut arrival = Vec::with_capacity(bins);
+    let curve = 2.0 * (4.0 / 3.0) * EARTH_RADIUS;
+    let tx_abs = ground[0] + spec.tx_agl;
+    let angle = |j: usize, top: f64| {
+        let d = j as f64 * spec.step;
+        ((top - tx_abs) / d - d / curve).atan()
+    };
+    let mut horizon = f64::NEG_INFINITY;
+    let mut seen = 1;
+    for b in 1..=bins {
+        let i = b * spec.stride;
+        height.push(ground[i] as f32);
+        while seen < i {
+            horizon = horizon.max(angle(seen, ground[seen]));
+            seen += 1;
+        }
+        let rx = if spec.rx_above_sea { (spec.rx_agl - ground[i]).max(0.5) } else { spec.rx_agl };
+        let l = if i < 2 {
+            f64::NAN
+        } else {
+            path_loss(&ground[..=i], spec.step, spec.tx_agl, rx, spec.freq_mhz, &spec.params)
+        };
+        loss.push(l as f32);
+        takeoff.push(angle(i, ground[i] + rx).max(horizon).to_degrees() as f32);
+        arrival.push(if i < 2 {
+            0.0
+        } else {
+            arrival_angle(&ground[..=i], spec.step, spec.tx_agl, rx, 4.0 / 3.0) as f32
+        });
     }
+    [loss, height, takeoff, arrival]
+}
+
+pub fn assemble(spec: &Spec, rows: Vec<Radial>) -> Coverage {
+    let Grid { bins, bin, .. } = Grid::of(spec);
     let mut loss = Vec::with_capacity(spec.radials * bins);
     let mut ground = Vec::with_capacity(spec.radials * bins);
     let mut takeoff = Vec::with_capacity(spec.radials * bins);
@@ -172,7 +157,35 @@ pub fn compute_with(
         takeoff.extend(t);
         arrival.extend(a);
     }
-    Some(Coverage { spec: spec.clone(), bins, bin, loss, ground, takeoff, arrival })
+    Coverage { spec: spec.clone(), bins, bin, loss, ground, takeoff, arrival }
+}
+
+pub fn compute_with(
+    elevation: &(dyn Fn(f64, f64) -> f64 + Sync),
+    spec: &Spec,
+    progress: &(dyn Fn(f32) + Sync),
+    cancel: &AtomicBool,
+) -> Option<Coverage> {
+    let bins = Grid::of(spec).bins;
+    let done = AtomicUsize::new(0);
+    let rows: Vec<Radial> = (0..spec.radials)
+        .into_par_iter()
+        .map(|r| {
+            if cancel.load(Ordering::Relaxed) {
+                return [vec![f32::NAN; bins], vec![0.0; bins], vec![0.0; bins], vec![0.0; bins]];
+            }
+            let row = radial(elevation, spec, r);
+            let k = done.fetch_add(1, Ordering::Relaxed) + 1;
+            if k.is_multiple_of(16) {
+                progress(k as f32 / spec.radials as f32);
+            }
+            row
+        })
+        .collect();
+    if cancel.load(Ordering::Relaxed) {
+        return None;
+    }
+    Some(assemble(spec, rows))
 }
 
 #[cfg(test)]

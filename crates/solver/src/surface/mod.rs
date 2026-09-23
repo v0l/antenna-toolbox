@@ -9,7 +9,7 @@ use crate::solve::{Backend, SolveResult, swr_of};
 use mesh::{SurfaceTopology, feed_edges, topology};
 use rwg::{fill_surface, surface_field, surface_impedance};
 use std::sync::Arc;
-use std::time::Instant;
+use web_time::Instant;
 
 #[derive(Clone)]
 pub struct SurfaceModel {
