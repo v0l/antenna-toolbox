@@ -26,6 +26,7 @@ pub fn snapshot(app: &App) -> BTreeMap<&'static str, String> {
     m.insert("target_lon", p.target.1.to_string());
     m.insert("target_agl", p.target_agl.to_string());
     m.insert("target_asl", p.target_asl.to_string());
+    m.insert("site_transmits", p.site_transmits.to_string());
     m.insert("k", p.k.to_string());
     m.insert("path_freq", p.freq.to_string());
     m.insert("path_gain", p.gain_dbi.to_string());
@@ -92,6 +93,9 @@ pub fn load(app: &mut App) {
     num("target_agl", &mut p.target_agl);
     if let Some(v) = m.get("target_asl").and_then(|v| v.parse().ok()) {
         p.target_asl = v;
+    }
+    if let Some(v) = m.get("site_transmits").and_then(|v| v.parse().ok()) {
+        p.site_transmits = v;
     }
     num("k", &mut p.k);
     num("path_freq", &mut p.freq);

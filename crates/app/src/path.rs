@@ -34,6 +34,64 @@ const BANDS: [(f64, Color32); 6] = [
     (40.0, Color32::from_rgb(0xff, 0x38, 0x30)),
 ];
 
+pub struct Preset {
+    name: &'static str,
+    freq: f64,
+    tx_dbm: f64,
+    far_dbi: f64,
+    sens_dbm: f64,
+    height: f64,
+    above_sea: bool,
+}
+
+pub const PRESETS: [Preset; 5] = [
+    Preset {
+        name: "AIS class A",
+        freq: 162.0,
+        tx_dbm: 41.0,
+        far_dbi: 2.0,
+        sens_dbm: -107.0,
+        height: 15.0,
+        above_sea: false,
+    },
+    Preset {
+        name: "AIS class B",
+        freq: 162.0,
+        tx_dbm: 33.0,
+        far_dbi: 2.0,
+        sens_dbm: -107.0,
+        height: 5.0,
+        above_sea: false,
+    },
+    Preset {
+        name: "ADS-B",
+        freq: 1090.0,
+        tx_dbm: 54.0,
+        far_dbi: 0.0,
+        sens_dbm: -92.0,
+        height: 10_000.0,
+        above_sea: true,
+    },
+    Preset {
+        name: "APRS 2 m",
+        freq: 144.8,
+        tx_dbm: 37.0,
+        far_dbi: 2.0,
+        sens_dbm: -118.0,
+        height: 2.0,
+        above_sea: false,
+    },
+    Preset {
+        name: "LoRa 868",
+        freq: 868.0,
+        tx_dbm: 14.0,
+        far_dbi: 2.0,
+        sens_dbm: -137.0,
+        height: 2.0,
+        above_sea: false,
+    },
+];
+
 enum CovMsg {
     Progress(Stage),
     Done(Result<Coverage, String>),
@@ -52,6 +110,7 @@ pub struct PathTab {
     pub far_dbi: f64,
     pub cable_db: f64,
     pub sens_dbm: f64,
+    pub site_transmits: bool,
     pub itm: Params,
     pub radius_km: f64,
     pub show_coverage: bool,
@@ -92,6 +151,7 @@ impl Default for PathTab {
             far_dbi: 2.0,
             cable_db: 1.0,
             sens_dbm: -107.0,
+            site_transmits: false,
             itm: Params { climate: Climate::MaritimeTemperateOverLand, ..Params::default() },
             radius_km: 60.0,
             show_coverage: true,
@@ -195,6 +255,16 @@ impl PathTab {
             self.pattern.as_ref().map(Arc::as_ptr),
             self.mount
         )
+    }
+
+    fn apply(&mut self, p: &Preset) {
+        self.freq = p.freq;
+        self.tx_dbm = p.tx_dbm;
+        self.far_dbi = p.far_dbi;
+        self.sens_dbm = p.sens_dbm;
+        self.target_agl = p.height;
+        self.target_asl = p.above_sea;
+        self.site_transmits = false;
     }
 
     pub fn take_design_request(&mut self) -> bool {
@@ -415,6 +485,21 @@ impl PathTab {
         });
         ui.add_space(8.0);
         section(ui, "link", "budget, one way", |ui| {
+            row(ui, "the site", |ui| {
+                choice(
+                    ui,
+                    "site-role",
+                    &mut self.site_transmits,
+                    [(false, "receives".to_string()), (true, "transmits".to_string())],
+                );
+            });
+            ui.horizontal_wrapped(|ui| {
+                for preset in &PRESETS {
+                    if ui.button(action(preset.name)).clicked() {
+                        self.apply(preset);
+                    }
+                }
+            });
             row(ui, "freq MHz", |ui| {
                 ui.add(
                     egui::DragValue::new(&mut self.freq)
@@ -423,21 +508,28 @@ impl PathTab {
                         .max_decimals(3),
                 );
             });
-            row(ui, "tx power dBm", |ui| {
+            let (theirs, ours) = ("their", "your");
+            let (tx_who, rx_who) =
+                if self.site_transmits { (ours, theirs) } else { (theirs, ours) };
+            row(ui, &format!("{tx_who} tx dBm"), |ui| {
                 ui.add(egui::DragValue::new(&mut self.tx_dbm).range(-30.0..=70.0).speed(0.5));
             });
-            row(ui, "far ant dBi", |ui| {
+            row(ui, "their ant dBi", |ui| {
                 ui.add(egui::DragValue::new(&mut self.far_dbi).range(-20.0..=40.0).speed(0.5));
             });
-            row(ui, "cable dB", |ui| {
+            row(ui, "your cable dB", |ui| {
                 ui.add(egui::DragValue::new(&mut self.cable_db).range(0.0..=30.0).speed(0.1));
             });
-            row(ui, "rx sens dBm", |ui| {
+            row(ui, &format!("{rx_who} sens dBm"), |ui| {
                 ui.add(egui::DragValue::new(&mut self.sens_dbm).range(-150.0..=0.0).speed(0.5));
             });
             hint(
                 ui,
-                "Loss is the same in both directions, so this holds whether the site sends or listens. Defaults are an AIS class B transponder (2 W) into a typical receiver.",
+                if self.site_transmits {
+                    "The map shows where a receiver at the far-end height would hear you."
+                } else {
+                    "The map shows where a transmitter at the far-end height would be heard by you. Path loss is the same both ways."
+                },
             );
         });
         ui.add_space(8.0);
