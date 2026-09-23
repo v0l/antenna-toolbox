@@ -5,3 +5,6 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+tiff.workspace = true
+ureq.workspace = true
+dirs.workspace = true
