@@ -131,6 +131,9 @@ fn a_second_source_drives_a_phased_pair() {
     let res = solve_at(&model_for(&r.geo, lam, 2.0, 900), lam, true);
     let fwd = res.gain_dbi([1.0, 0.0, 0.0]).unwrap();
     let back = res.gain_dbi([-1.0, 0.0, 0.0]).unwrap();
-    assert!((fwd - 5.48).abs() < 0.2 && (back - 1.95).abs() < 0.2, "nec2 5.48 / 1.95, ours {fwd} / {back}");
+    assert!(
+        (fwd - 5.48).abs() < 0.2 && (back - 1.95).abs() < 0.2,
+        "nec2 5.48 / 1.95, ours {fwd} / {back}"
+    );
     assert!((res.z - C64::new(52.06, 14.13)).norm() < 3.0, "nec2 52.06+14.13j, ours {}", res.z);
 }

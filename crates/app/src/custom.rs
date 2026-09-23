@@ -1,6 +1,7 @@
 use antenna_designs::draw::{GOLD, SILVER};
 use antenna_designs::{Poly, Scene, wire};
-use antenna_solver::geometry::{RealGround, SolveLine, WireGeometry, WireProps};
+use antenna_solver::C64;
+use antenna_solver::geometry::{Load, RealGround, SolveLine, WireGeometry, WireProps};
 use antenna_solver::nec;
 use antenna_solver::vec::{Vec3, lerp};
 use egui::Ui;
@@ -43,6 +44,8 @@ pub struct Custom {
     pub feed_wire: usize,
     pub feed_at: f64,
     pub ground: Ground,
+    pub sources: Vec<(Vec3, C64)>,
+    pub loads: Vec<(Vec3, Load)>,
     pub path: String,
     pub message: Option<(bool, String)>,
 }
@@ -55,6 +58,8 @@ impl Default for Custom {
             feed_wire: 0,
             feed_at: 0.5,
             ground: Ground::Free,
+            sources: Vec::new(),
+            loads: Vec::new(),
             path: String::new(),
             message: None,
         }
@@ -63,7 +68,10 @@ impl Default for Custom {
 
 impl Custom {
     pub fn key(&self) -> String {
-        format!("{:?}|{}|{}|{:?}", self.wires, self.feed_wire, self.feed_at, self.ground)
+        format!(
+            "{:?}|{}|{}|{:?}|{:?}|{:?}",
+            self.wires, self.feed_wire, self.feed_at, self.ground, self.sources, self.loads
+        )
     }
 
     pub fn feed_point(&self) -> Vec3 {
@@ -84,6 +92,8 @@ impl Custom {
                 })
                 .collect(),
             feed: self.feed_point(),
+            sources: self.sources.clone(),
+            loads: self.loads.clone(),
             ..Default::default()
         };
         match self.ground {
@@ -203,6 +213,8 @@ impl Custom {
                 (Some(_), None) => Ground::Perfect,
                 (Some(_), Some(r)) => Ground::Real(r),
             },
+            sources: geo.sources.iter().map(|&(p, v)| (at(p), v)).collect(),
+            loads: geo.loads.iter().map(|&(p, l)| (at(p), l)).collect(),
             path: String::new(),
             message: None,
         })

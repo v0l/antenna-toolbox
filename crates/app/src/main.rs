@@ -208,6 +208,13 @@ mod tests {
             custom::Ground::Real(antenna_solver::geometry::RealGround::AVERAGE);
         settle(&mut h, 3000);
         h.render().unwrap().save(dir.join("design-custom.png")).unwrap();
+        if let Ok(path) = std::env::var("SHOT_NEC") {
+            let text = std::fs::read_to_string(&path).unwrap();
+            h.state_mut().design.custom.path = path;
+            h.state_mut().design.import_text(&text);
+            settle(&mut h, 4000);
+            h.render().unwrap().save(dir.join("design-nec.png")).unwrap();
+        }
         for (tab, name) in [(Tab::Vna, "vna"), (Tab::Path, "path")] {
             h.state_mut().tab = tab;
             settle(&mut h, 4000);

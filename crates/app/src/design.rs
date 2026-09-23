@@ -169,6 +169,12 @@ fn scaled(c: &Custom, s: f64) -> Custom {
         w.a = w.a.map(|v| v * s);
         w.b = w.b.map(|v| v * s);
     }
+    for p in &mut c.sources {
+        p.0 = p.0.map(|v| v * s);
+    }
+    for p in &mut c.loads {
+        p.0 = p.0.map(|v| v * s);
+    }
     c
 }
 
@@ -348,9 +354,10 @@ impl DesignTab {
         }
     }
 
-    fn import_text(&mut self, text: &str) {
+    pub fn import_text(&mut self, text: &str) {
         match self.custom.import(text, self.wire / 2.0) {
             Ok(freq) => {
+                self.note = None;
                 self.source = Source::Custom;
                 if let Some(f) = freq.filter(|f| *f > 0.0) {
                     self.freq = f;
