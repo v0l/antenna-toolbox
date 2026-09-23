@@ -97,12 +97,35 @@ impl Load {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Network {
+    Line { z0: f64, length: f64, crossed: bool, shunt: [crate::C64; 2] },
+    Admittance { y11: crate::C64, y12: crate::C64, y22: crate::C64 },
+}
+
+impl Network {
+    pub fn y(self, freq_hz: f64) -> [[crate::C64; 2]; 2] {
+        use crate::C64;
+        match self {
+            Network::Line { z0, length, crossed, shunt } => {
+                let bl = 2.0 * std::f64::consts::PI * freq_hz / 299_792_458.0 * length / 1000.0;
+                let s = if bl.sin().abs() < 1e-9 { 1e-9_f64.copysign(bl.sin()) } else { bl.sin() };
+                let y11 = C64::new(0.0, -bl.cos() / s / z0);
+                let y12 = C64::new(0.0, 1.0 / s / z0) * if crossed { -1.0 } else { 1.0 };
+                [[y11 + shunt[0], y12], [y12, y11 + shunt[1]]]
+            }
+            Network::Admittance { y11, y12, y22 } => [[y11, y12], [y12, y22]],
+        }
+    }
+}
+
 #[derive(Clone, Default)]
 pub struct WireGeometry {
     pub lines: Vec<SolveLine>,
     pub feed: Vec3,
     pub sources: Vec<(Vec3, crate::C64)>,
     pub loads: Vec<(Vec3, Load)>,
+    pub networks: Vec<(Vec3, Vec3, Network)>,
     pub ground_z: Option<f64>,
     pub real_ground: Option<RealGround>,
     pub mirrors: Vec<ImagePlane>,

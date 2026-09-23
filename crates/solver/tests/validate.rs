@@ -137,3 +137,74 @@ fn a_second_source_drives_a_phased_pair() {
     );
     assert!((res.z - C64::new(52.06, 14.13)).norm() < 3.0, "nec2 52.06+14.13j, ours {}", res.z);
 }
+
+fn nec_case(deck: &str) -> (C64, f64, f64) {
+    let r = antenna_solver::nec::import(deck).unwrap();
+    let lam = 299_792.458 / r.freq_mhz.unwrap();
+    let res = solve_at(&model_for(&r.geo, lam, 2.0, 900), lam, true);
+    (res.z, res.gain_dbi([1.0, 0.0, 0.0]).unwrap(), res.gain_dbi([-1.0, 0.0, 0.0]).unwrap())
+}
+
+#[test]
+fn a_crossed_line_between_dipoles_matches_nec2() {
+    let (z, fwd, back) = nec_case(
+        "GW 1 21 0 -0.24 0 0 0.24 0 0.001\nGW 2 21 0.125 -0.24 0 0.125 0.24 0 0.001\nGE\nFR 0 1 0 0 299.8 0\nEX 0 1 11 0 1 0\nTL 1 11 2 11 -50 0.125 0 0 0 0\nEN\n",
+    );
+    assert!((z - C64::new(7.38, 18.31)).norm() < 2.5, "nec2 7.38+18.31j, ours {z}");
+    assert!(
+        (fwd - 1.77).abs() < 0.3 && (back - 7.28).abs() < 0.3,
+        "nec2 1.77 / 7.28, ours {fwd} / {back}"
+    );
+}
+
+#[test]
+fn a_general_network_matches_nec2() {
+    let (z, fwd, back) = nec_case(
+        "GW 1 21 0 -0.24 0 0 0.24 0 0.001\nGW 2 21 0.25 -0.24 0 0.25 0.24 0 0.001\nGE\nFR 0 1 0 0 299.8 0\nEX 0 1 11 0 1 0\nNT 1 11 2 11 0.01 -0.005 0 0.004 0.002 0.001\nEN\n",
+    );
+    assert!((z - C64::new(33.57, 5.39)).norm() < 2.0, "nec2 33.57+5.39j, ours {z}");
+    assert!(
+        (fwd - 1.98).abs() < 0.3 && (back + 1.86).abs() < 0.3,
+        "nec2 1.98 / -1.86, ours {fwd} / {back}"
+    );
+}
+
+#[test]
+fn nec_example_five_log_periodic_matches_nec2() {
+    let deck = "GW 1 5 0.0000 -1.0000 0 0 1.0000 0 .00667
+GW 2 5 -.7527 -1.0753 0 -.7527 1.0753 0 .00717
+GW 3 5 -1.562 -1.1562 0 -1.562 1.1562 0 .00771
+GW 4 5 -2.4323 -1.2432 0 -2.4323 1.2432 0 .00829
+GW 5 5 -3.368 -1.3368 0 -3.368 1.3368 0 .00891
+GW 6 7 -4.3742 -1.4374 0 -4.3742 1.4374 0 .00958
+GW 7 7 -5.4562 -1.5456 0 -5.4562 1.5456 0 .0103
+GW 8 7 -6.6195 -1.6619 0 -6.6195 1.6619 0 .01108
+GW 9 7 -7.8705 -1.787 0 -7.8705 1.787 0 .01191
+GW 10 7 -9.2156 -1.9215 0 -9.2156 1.9215 0 .01281
+GW 11 9 -10.6619 -2.0662 0 -10.6619 2.0662 0 .01377
+GW 12 9 -12.2171 -2.2217 0 -12.2171 2.2217 0 .01481
+GE
+FR 0 0 0 0 46.29 0.
+TL 1 3 2 3 -50.
+TL 2 3 3 3 -50.
+TL 3 3 4 3 -50.
+TL 4 3 5 3 -50.
+TL 5 3 6 4 -50.
+TL 6 4 7 4 -50.
+TL 7 4 8 4 -50.
+TL 8 4 9 4 -50.
+TL 9 4 10 4 -50.
+TL 10 4 11 5 -50.
+TL 11 5 12 5 -50. ,0.,0.,0.,.02
+EX 0 1 3 10 1
+EN
+";
+    let r = antenna_solver::nec::import(deck).unwrap();
+    let lam = 299_792.458 / r.freq_mhz.unwrap();
+    let res = solve_at(&model_for(&r.geo, lam, 2.0, 900), lam, true);
+    assert!((res.z - C64::new(42.33, -0.45)).norm() < 1.5, "nec2 42.33-0.45j, ours {}", res.z);
+    let eff = res.efficiency.unwrap();
+    assert!((eff - 0.9111).abs() < 0.01, "nec2 91.11 % into the termination, ours {eff}");
+    let d = res.directivity.unwrap();
+    assert!((d - 9.75).abs() < 0.15, "nec2 9.75 dBi directive gain, ours {d}");
+}

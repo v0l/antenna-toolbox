@@ -1,5 +1,5 @@
 use crate::C64;
-use crate::geometry::{Insulation, Load, RealGround, SolveLine, WireGeometry, WireProps};
+use crate::geometry::{Insulation, Load, Network, RealGround, SolveLine, WireGeometry, WireProps};
 use crate::mom::segmentise;
 use crate::vec::{Vec3, add, length, lerp, scale, sub};
 use std::fmt::Write;
@@ -62,10 +62,15 @@ pub fn export(
         Feed,
         Source(C64),
         Load(Load),
+        Net(usize, usize),
     }
     let mut ports: Vec<(Vec3, Port)> = vec![(geo.feed, Port::Feed)];
     ports.extend(geo.sources.iter().map(|&(p, v)| (p, Port::Source(v))));
     ports.extend(geo.loads.iter().map(|&(p, l)| (p, Port::Load(l))));
+    for (i, n) in geo.networks.iter().enumerate() {
+        ports.push((n.0, Port::Net(i, 0)));
+        ports.push((n.1, Port::Net(i, 1)));
+    }
     let mut placed = vec![false; ports.len()];
     let mut wires: Vec<Wire> = Vec::new();
     let mut tagged: Vec<(usize, Port)> = Vec::new();
@@ -175,6 +180,36 @@ pub fn export(
             Port::Load(Load::Impedance { r, x }) => {
                 let _ = writeln!(o, "LD 4 {tag} 1 1 {r:e} {x:e}");
             }
+            Port::Net(..) => {}
+        }
+    }
+    for (i, (_, _, net)) in geo.networks.iter().enumerate() {
+        let end = |e: usize| {
+            tagged.iter().find(|t| matches!(t.1, Port::Net(j, k) if j == i && k == e)).map(|t| t.0)
+        };
+        let (Some(t1), Some(t2)) = (end(0), end(1)) else {
+            continue;
+        };
+        match *net {
+            Network::Line { z0, length, crossed, shunt } => {
+                let z = if crossed { -z0 } else { z0 };
+                let _ = writeln!(
+                    o,
+                    "TL {t1} 1 {t2} 1 {z} {:.6} {:e} {:e} {:e} {:e}",
+                    length / 1000.0,
+                    shunt[0].re,
+                    shunt[0].im,
+                    shunt[1].re,
+                    shunt[1].im
+                );
+            }
+            Network::Admittance { y11, y12, y22 } => {
+                let _ = writeln!(
+                    o,
+                    "NT {t1} 1 {t2} 1 {:e} {:e} {:e} {:e} {:e} {:e}",
+                    y11.re, y11.im, y12.re, y12.im, y22.re, y22.im
+                );
+            }
         }
     }
     let _ = writeln!(o, "FR 0 1 0 0 {freq_mhz} 0");
@@ -221,6 +256,7 @@ pub fn import(deck: &str) -> Result<Imported, String> {
     let mut out = Imported::default();
     let mut sources: Vec<(i64, usize, C64)> = Vec::new();
     let mut loads: Vec<(i64, i64, usize, usize, [f64; 3])> = Vec::new();
+    let mut nets: Vec<(bool, [i64; 4], [f64; 6])> = Vec::new();
     let mut ground: Option<Option<RealGround>> = None;
     let mut scale_m = 1.0;
     for (ln, raw) in deck.lines().enumerate() {
@@ -397,6 +433,15 @@ pub fn import(deck: &str) -> Result<Imported, String> {
                         Some(Insulation { eps_r: eps, inner: 0.0, outer: outer * 1000.0 });
                 }
             }
+            "TL" | "NT" => {
+                let ends = [get(0) as i64, get(1) as i64, get(2) as i64, get(3) as i64];
+                let f = [get(4), get(5), get(6), get(7), get(8), get(9)];
+                if ends[0] == -1 {
+                    nets.clear();
+                } else {
+                    nets.push((card == "TL", ends, f));
+                }
+            }
             "FR" => {
                 if out.freq_mhz.is_none() {
                     out.freq_mhz = Some(get(4));
@@ -429,6 +474,25 @@ pub fn import(deck: &str) -> Result<Imported, String> {
     let fed = centre(tag, seg)?;
     for &(t, s, v) in rest {
         out.geo.sources.push((centre(t, s)?, v / v0));
+    }
+    for &(line, [t1, s1, t2, s2], f) in &nets {
+        let (a, b) = (centre(t1, s1 as usize)?, centre(t2, s2 as usize)?);
+        let net = if line {
+            let length = if f[1] > 0.0 { f[1] * 1000.0 } else { length(sub(b, a)) };
+            Network::Line {
+                z0: f[0].abs(),
+                length,
+                crossed: f[0] < 0.0,
+                shunt: [C64::new(f[2], f[3]), C64::new(f[4], f[5])],
+            }
+        } else {
+            Network::Admittance {
+                y11: C64::new(f[0], f[1]),
+                y12: C64::new(f[2], f[3]),
+                y22: C64::new(f[4], f[5]),
+            }
+        };
+        out.geo.networks.push((a, b, net));
     }
     for &(kind, tag, s1, s2, [a, b, c]) in &loads {
         let load = match kind {

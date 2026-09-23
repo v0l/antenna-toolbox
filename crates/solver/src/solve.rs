@@ -83,7 +83,7 @@ pub fn solve_at(model: &Model, lam: f64, want_pattern: bool) -> SolveResult {
     let k = 2.0 * PI / lam;
     let coeffs = solve_cpu(model, k);
     let how = Backend::Cpu;
-    let i = coeffs.get(model.feed).copied().unwrap_or_default();
+    let i = model.source_current(&coeffs, model.feed, k);
     let z = if i.norm_sqr() > 0.0 { i.inv() } else { C64::new(1e30, 0.0) };
     let currents = segment_currents(model, &coeffs);
 
@@ -132,7 +132,11 @@ pub fn solve_at(model: &Model, lam: f64, want_pattern: bool) -> SolveResult {
         if model.po.is_none() {
             let p_in = 0.5
                 * (i.re
-                    + model.sources.iter().map(|&(b, v)| (v * coeffs[b].conj()).re).sum::<f64>());
+                    + model
+                        .sources
+                        .iter()
+                        .map(|&(b, v)| (v * model.source_current(&coeffs, b, k).conj()).re)
+                        .sum::<f64>());
             if p_in > 0.0 {
                 let eff = (radiated_power(&*pattern, k) / p_in).min(1.0);
                 result.efficiency = Some(eff);

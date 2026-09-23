@@ -47,6 +47,7 @@ pub struct Model {
     pub feed_point: Vec3,
     pub sources: Vec<(usize, C64)>,
     pub loads: Vec<(usize, crate::geometry::Load)>,
+    pub networks: Vec<(usize, usize, crate::geometry::Network)>,
     pub max_degree: usize,
     pub ground_z: Option<f64>,
     pub real_ground: Option<RealGround>,
@@ -171,6 +172,7 @@ pub fn build_model(geo: &WireGeometry, lam: f64, wire_dia: f64, cap: usize) -> M
     let mut ports = vec![geo.feed];
     ports.extend(geo.sources.iter().map(|s| s.0));
     ports.extend(geo.loads.iter().map(|l| l.0));
+    ports.extend(geo.networks.iter().flat_map(|n| [n.0, n.1]));
     let lines = split_at(&geo.lines, &ports);
     let segs = segmentise(&lines, lam, cap);
     let min_len = segs.iter().map(|s| s.len).fold(f64::INFINITY, f64::min);
@@ -189,8 +191,28 @@ pub fn build_model(geo: &WireGeometry, lam: f64, wire_dia: f64, cap: usize) -> M
             .unwrap_or(0)
     };
     let feed = nearest(geo.feed);
-    let sources = geo.sources.iter().map(|&(p, v)| (nearest(p), v)).collect();
+    let sense = |b: usize| {
+        if bases.get(b).and_then(|x| x.halves.first()).is_none_or(|h| h.at_b) { 1.0 } else { -1.0 }
+    };
+    let fs = sense(feed);
+    let sources = geo
+        .sources
+        .iter()
+        .map(|&(p, v)| {
+            let b = nearest(p);
+            (b, v * sense(b) * fs)
+        })
+        .collect();
     let loads = geo.loads.iter().map(|&(p, l)| (nearest(p), l)).collect();
+    let networks = geo
+        .networks
+        .iter()
+        .map(|&(a, b, n)| {
+            let (ba, bb) = (nearest(a), nearest(b));
+            let n = if sense(ba) * sense(bb) < 0.0 { flip(n) } else { n };
+            (ba, bb, n)
+        })
+        .collect();
 
     let mut images = Vec::new();
     if let Some(gz) = geo.ground_z {
@@ -204,6 +226,7 @@ pub fn build_model(geo: &WireGeometry, lam: f64, wire_dia: f64, cap: usize) -> M
         feed_point: bases.get(feed).map(|b| b.node).unwrap_or(geo.feed),
         sources,
         loads,
+        networks,
         segs,
         bases,
         a,
@@ -526,20 +549,99 @@ pub fn fill(model: &Model, k: f64) -> System {
     sys
 }
 
+fn flip(n: crate::geometry::Network) -> crate::geometry::Network {
+    use crate::geometry::Network;
+    match n {
+        Network::Line { z0, length, crossed, shunt } => {
+            Network::Line { z0, length, crossed: !crossed, shunt }
+        }
+        Network::Admittance { y11, y12, y22 } => Network::Admittance { y11, y12: -y12, y22 },
+    }
+}
+
+impl Model {
+    pub fn freq_hz(k: f64) -> f64 {
+        k * 1000.0 * 299_792_458.0 / (2.0 * PI)
+    }
+
+    pub fn ports(&self) -> Vec<usize> {
+        let mut ports: Vec<usize> = self.networks.iter().flat_map(|n| [n.0, n.1]).collect();
+        ports.sort_unstable();
+        ports.dedup();
+        ports
+    }
+
+    fn port_admittance(&self, k: f64, ports: &[usize]) -> Vec<C64> {
+        let p = ports.len();
+        let mut y = vec![C64::new(0.0, 0.0); p * p];
+        let at = |b: usize| ports.iter().position(|&x| x == b).unwrap_or(0);
+        for &(a, b, n) in &self.networks {
+            let m = n.y(Self::freq_hz(k));
+            let (i, j) = (at(a), at(b));
+            y[i * p + i] += m[0][0];
+            y[i * p + j] += m[0][1];
+            y[j * p + i] += m[1][0];
+            y[j * p + j] += m[1][1];
+        }
+        y
+    }
+
+    pub fn source_current(&self, x: &[C64], b: usize, k: f64) -> C64 {
+        let i = x.get(b).copied().unwrap_or_default();
+        let ports = self.ports();
+        let Some(r) = ports.iter().position(|&p| p == b) else {
+            return i;
+        };
+        let n = self.bases.len();
+        let y = self.port_admittance(k, &ports);
+        let p = ports.len();
+        i + (0..p).map(|j| y[r * p + j] * x.get(n + j).copied().unwrap_or_default()).sum::<C64>()
+    }
+}
+
 pub fn solve_cpu(model: &Model, k: f64) -> Currents {
     let mut sys = fill(model, k);
-    if !model.bases.is_empty() {
-        *sys.rhs_mut(model.feed) = C64::new(1.0, 0.0);
-        for &(b, v) in &model.sources {
-            *sys.rhs_mut(b) += v;
-        }
-        let freq_hz = k * 1000.0 * 299_792_458.0 / (2.0 * PI);
-        for &(b, load) in &model.loads {
-            let w = sys.w;
-            sys.a[b * w + b] += load.impedance(freq_hz);
-        }
+    if model.bases.is_empty() {
+        return solve_system(sys);
     }
-    solve_system(sys)
+    let mut drive = vec![(model.feed, C64::new(1.0, 0.0))];
+    drive.extend(model.sources.iter().copied());
+    for &(b, v) in &drive {
+        *sys.rhs_mut(b) += v;
+    }
+    let freq_hz = Model::freq_hz(k);
+    for &(b, load) in &model.loads {
+        let w = sys.w;
+        sys.a[b * w + b] += load.impedance(freq_hz);
+    }
+    if model.networks.is_empty() {
+        return solve_system(sys);
+    }
+    let ports = model.ports();
+    let y = model.port_admittance(k, &ports);
+    let (n, p) = (sys.n, ports.len());
+    let mut big = crate::linalg::System::zeros(n + p);
+    let bw = big.w;
+    for r in 0..n {
+        big.a[r * bw..r * bw + n].copy_from_slice(&sys.a[r * sys.w..r * sys.w + n]);
+        big.a[r * bw + n + p] = sys.a[r * sys.w + n];
+    }
+    for (k, &b) in ports.iter().enumerate() {
+        let row = n + k;
+        let driven: C64 = drive.iter().filter(|d| d.0 == b).map(|d| d.1).sum();
+        if drive.iter().any(|d| d.0 == b) {
+            big.a[b * bw + n + p] -= driven;
+            big.a[row * bw + n + k] = C64::new(1.0, 0.0);
+            big.a[row * bw + n + p] = driven;
+        } else {
+            big.a[row * bw + b] = C64::new(1.0, 0.0);
+            for j in 0..p {
+                big.a[row * bw + n + j] = y[k * p + j];
+            }
+        }
+        big.a[b * bw + n + k] = C64::new(-1.0, 0.0);
+    }
+    solve_system(big)
 }
 
 pub fn segment_currents(model: &Model, coeffs: &[C64]) -> Currents {

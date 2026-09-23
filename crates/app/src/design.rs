@@ -175,6 +175,13 @@ fn scaled(c: &Custom, s: f64) -> Custom {
     for p in &mut c.loads {
         p.0 = p.0.map(|v| v * s);
     }
+    for p in &mut c.networks {
+        p.0 = p.0.map(|v| v * s);
+        p.1 = p.1.map(|v| v * s);
+        if let antenna_solver::geometry::Network::Line { length, .. } = &mut p.2 {
+            *length *= s;
+        }
+    }
     c
 }
 
