@@ -98,7 +98,9 @@ pub fn yagi_diagram(els: &[Element], fmt: &dyn Fn(f64) -> String) -> Drawing {
         }
     }
     let feed = els.iter().find(|e| e.feed).expect("driven element");
-    g.feed_flag(cx, y(feed), false);
+    let room_below =
+        els.iter().map(|e| y(e) - y(feed)).filter(|d| *d > 0.0).fold(f64::INFINITY, f64::min);
+    g.feed_flag(cx, y(feed), room_below > 40.0);
     g.beam_label(cx, h - 14.0, None);
     g
 }
