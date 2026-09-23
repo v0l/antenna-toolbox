@@ -1,7 +1,9 @@
 use crate::draw::{Anchor, Drawing, GOLD, GREY, SILVER, hexa};
 use crate::feed_detail::inline;
 use crate::feeds::{FeedFrame, FeedKind, build_feed};
-use crate::{Build, ControlId, CutFile, Ctx, DIPOLE_K, Design, Group, Output, Poly, Scene, row, total};
+use crate::{
+    Build, ControlId, Ctx, CutFile, DIPOLE_K, Design, Group, Output, Poly, Scene, row, total,
+};
 use antenna_solver::geometry::{Geometry, ImagePlane, WireGeometry};
 use antenna_solver::vec::Vec3;
 use std::f64::consts::FRAC_1_SQRT_2 as ROOT_HALF;
@@ -34,7 +36,14 @@ fn diagram(apex: f64, side: f64, dipole: f64) -> Drawing {
     g.line(cx + dx - 2.0, cy - dipole * sc / 2.0, cx + dx - 2.0, cy + dipole * sc / 2.0, GOLD, 4.0);
     g.feed_flag(cx + dx, cy, false);
     g.dim(cx, cy + 40.0, cx + dx, cy + 40.0, "apex to driven", 0.0, -8.0, Anchor::Middle);
-    g.label(cx + arm * ROOT_HALF + 10.0, cy - arm * ROOT_HALF, "plate, side length", SILVER, 12.0, Anchor::Start);
+    g.label(
+        cx + arm * ROOT_HALF + 10.0,
+        cy - arm * ROOT_HALF,
+        "plate, side length",
+        SILVER,
+        12.0,
+        Anchor::Start,
+    );
     g.label(cx - 10.0, cy + 4.0, "apex, 90°", GREY, 12.0, Anchor::End);
     g.beam_label(w - 120.0, cy, Some("→ beam"));
     g
@@ -50,14 +59,28 @@ fn compute(c: &Ctx) -> Output {
     let feed = build_feed(
         kind,
         lam,
-        &FeedFrame { origin: [cx, 0.0, cx], bore: [-ROOT_HALF, 0.0, -ROOT_HALF], pol: [0.0, 1.0, 0.0] },
+        &FeedFrame {
+            origin: [cx, 0.0, cx],
+            bore: [-ROOT_HALF, 0.0, -ROOT_HALF],
+            pol: [0.0, 1.0, 0.0],
+        },
         Some(driven),
     );
     let plate = |z_axis: bool| -> Vec<Vec3> {
         if z_axis {
-            vec![[0.0, -side / 2.0, 0.0], [side, -side / 2.0, 0.0], [side, side / 2.0, 0.0], [0.0, side / 2.0, 0.0]]
+            vec![
+                [0.0, -side / 2.0, 0.0],
+                [side, -side / 2.0, 0.0],
+                [side, side / 2.0, 0.0],
+                [0.0, side / 2.0, 0.0],
+            ]
         } else {
-            vec![[0.0, -side / 2.0, 0.0], [0.0, -side / 2.0, side], [0.0, side / 2.0, side], [0.0, side / 2.0, 0.0]]
+            vec![
+                [0.0, -side / 2.0, 0.0],
+                [0.0, -side / 2.0, side],
+                [0.0, side / 2.0, side],
+                [0.0, side / 2.0, 0.0],
+            ]
         }
     };
     let mut rows = vec![row("feed", kind.label())];
@@ -96,7 +119,9 @@ fn compute(c: &Ctx) -> Output {
         feed: inline(
             "driven element, one half",
             "driven element, other half",
-            Some("Keep the dipole parallel to the apex line. Rotate it and the images stop reinforcing."),
+            Some(
+                "Keep the dipole parallel to the apex line. Rotate it and the images stop reinforcing.",
+            ),
         ),
         notes: format!(
             "{}\n\n**Two flat plates and one dipole, for about 12 dBi.** Nothing is resonant except \
@@ -121,7 +146,12 @@ fn compute(c: &Ctx) -> Output {
         cut: Some(CutFile {
             loops: vec![
                 vec![[0.0, 0.0, 0.0], [side, 0.0, 0.0], [side, side, 0.0], [0.0, side, 0.0]],
-                vec![[side * 1.1, 0.0, 0.0], [side * 2.1, 0.0, 0.0], [side * 2.1, side, 0.0], [side * 1.1, side, 0.0]],
+                vec![
+                    [side * 1.1, 0.0, 0.0],
+                    [side * 2.1, 0.0, 0.0],
+                    [side * 2.1, side, 0.0],
+                    [side * 1.1, side, 0.0],
+                ],
             ],
             circles: vec![],
             note: format!(

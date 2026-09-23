@@ -157,7 +157,15 @@ fn plate_drawing() -> Drawing {
     d.rect(96.0, 112.0, 84.0, 26.0, Some(SLEEVE), Some(Stroke::new(METAL, 1.5)));
     d.rect(168.0, 104.0, 16.0, 42.0, Some(BODY), Some(Stroke::new(METAL, 1.5)));
     d.text_at(90.0, 129.0, "coax", MUTED, 12.0, Anchor::End, Face::Sans);
-    d.text_at(176.0, 166.0, "nut bonds the shield to the plate", GREY, 11.0, Anchor::Middle, Face::Sans);
+    d.text_at(
+        176.0,
+        166.0,
+        "nut bonds the shield to the plate",
+        GREY,
+        11.0,
+        Anchor::Middle,
+        Face::Sans,
+    );
     lead(&mut d, &[(184.0, 112.0), (330.0, 112.0), (330.0, 44.0)], GOLD);
     d.dot(330.0, 112.0, 3.2, GOLD);
     lead(&mut d, &[(180.0, 168.0), (330.0, 168.0), (330.0, 206.0)], GREY);

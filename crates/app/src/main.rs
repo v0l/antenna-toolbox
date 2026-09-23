@@ -1,1 +1,194 @@
-fn main() {}
+mod charts;
+mod design;
+mod drawing;
+mod map;
+mod path;
+mod rich;
+mod state;
+mod view3d;
+mod vna;
+mod worker;
+
+use design::DesignTab;
+use egui_bench::prelude::*;
+use path::PathTab;
+use std::sync::{Arc, Mutex};
+use vna::VnaTab;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Tab {
+    Design,
+    Vna,
+    Path,
+}
+
+struct App {
+    saved: String,
+    tab: Tab,
+    design: DesignTab,
+    vna: VnaTab,
+    path: PathTab,
+    gpu: Arc<Mutex<Option<String>>>,
+}
+
+impl App {
+    fn new() -> Self {
+        let gpu: Arc<Mutex<Option<String>>> = Arc::default();
+        let slot = gpu.clone();
+        std::thread::spawn(move || {
+            let name = antenna_solver::gpu::init().unwrap_or_else(|| "none, CPU only".into());
+            if let Ok(mut g) = slot.lock() {
+                *g = Some(name);
+            }
+        });
+        let mut app = Self {
+            saved: String::new(),
+            tab: Tab::Design,
+            design: DesignTab::default(),
+            vna: VnaTab::default(),
+            path: PathTab::default(),
+            gpu,
+        };
+        if !cfg!(test) {
+            state::load(&mut app);
+        }
+        app.saved = format!("{:?}", state::snapshot(&app));
+        app
+    }
+}
+
+impl eframe::App for App {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let ctx = ui.ctx().clone();
+        self.design.poll(&ctx);
+        self.vna.poll();
+        self.path.poll(&ctx, self.design.freq);
+        let now = format!("{:?}", state::snapshot(self));
+        if !cfg!(test) && now != self.saved && !ui.input(|i| i.pointer.any_down()) {
+            state::save(self);
+            self.saved = now;
+        }
+
+        egui::Panel::top("tabs").show(ui, |ui| {
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                modal_title(ui, "antenna toolbox");
+                ui.add_space(16.0);
+                let gpu = self
+                    .gpu
+                    .lock()
+                    .ok()
+                    .and_then(|g| g.clone())
+                    .unwrap_or_else(|| "starting".into());
+                Line::new().legend("gpu").gap(6.0).value(gpu).size(11.0).show(ui);
+            });
+            tabs(
+                ui,
+                &mut self.tab,
+                &[(Tab::Design, "design"), (Tab::Vna, "vna"), (Tab::Path, "path")],
+            );
+        });
+
+        egui::Panel::left("side").exact_size(330.0).show(ui, |ui| {
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                ui.add_space(8.0);
+                match self.tab {
+                    Tab::Design => self.design.sidebar(ui),
+                    Tab::Vna => self.vna.sidebar(ui, &mut self.design),
+                    Tab::Path => self.path.sidebar(ui),
+                }
+            });
+        });
+
+        egui::CentralPanel::default().show(ui, |ui| {
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                ui.set_max_width(980.0);
+                match self.tab {
+                    Tab::Design => self.design.central(ui),
+                    Tab::Vna => self.vna.central(ui, &mut self.design),
+                    Tab::Path => self.path.central(ui, &mut self.design),
+                }
+                ui.add_space(20.0);
+            });
+        });
+    }
+}
+
+fn main() -> eframe::Result<()> {
+    let options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default()
+            .with_inner_size([1400.0, 920.0])
+            .with_title("antenna toolbox"),
+        ..Default::default()
+    };
+    eframe::run_native(
+        "antenna-toolbox",
+        options,
+        Box::new(|cc| {
+            egui_bench::install(&cc.egui_ctx);
+            Ok(Box::new(App::new()))
+        }),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use egui_kittest::Harness;
+
+    fn settle(h: &mut Harness<'_, App>, ms: u64) {
+        for _ in 0..ms / 50 {
+            h.step();
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+    }
+
+    #[test]
+    #[ignore = "renders the app to target/shots for a visual check"]
+    fn render_every_tab() {
+        let mut h =
+            Harness::builder().with_size(egui::vec2(1400.0, 1000.0)).wgpu().build_eframe(|cc| {
+                egui_bench::install(&cc.egui_ctx);
+                App::new()
+            });
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/shots");
+        std::fs::create_dir_all(&dir).unwrap();
+        let designs: Vec<String> = std::env::var("SHOT_DESIGNS")
+            .map(|s| s.split(',').map(str::to_string).collect())
+            .unwrap_or_else(|_| vec!["moxon".into()]);
+        for id in &designs {
+            h.state_mut().design.design = antenna_designs::by_id(id);
+            h.state_mut().design.freq =
+                std::env::var("SHOT_FREQ").ok().and_then(|f| f.parse().ok()).unwrap_or(162.0);
+            settle(&mut h, 2500);
+            h.render().unwrap().save(dir.join(format!("design-{id}.png"))).unwrap();
+        }
+        for (tab, name) in [(Tab::Vna, "vna"), (Tab::Path, "path")] {
+            h.state_mut().tab = tab;
+            settle(&mut h, 4000);
+            h.render().unwrap().save(dir.join(format!("{name}.png"))).unwrap();
+        }
+    }
+
+    #[test]
+    #[ignore = "needs a VNA on USB and renders to target/shots"]
+    fn render_live_vna() {
+        let mut h =
+            Harness::builder().with_size(egui::vec2(1400.0, 1000.0)).wgpu().build_eframe(|cc| {
+                egui_bench::install(&cc.egui_ctx);
+                App::new()
+            });
+        let freq = std::env::var("SHOT_FREQ").ok().and_then(|f| f.parse().ok()).unwrap_or(868.0);
+        h.state_mut().design.design = antenna_designs::by_id("dipole");
+        h.state_mut().design.freq = freq;
+        h.state_mut().tab = Tab::Vna;
+        settle(&mut h, 2500);
+        let ctx = h.ctx.clone();
+        let app = h.state_mut();
+        app.vna.live_sweep(&ctx, &app.design);
+        settle(&mut h, 6000);
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/shots");
+        std::fs::create_dir_all(&dir).unwrap();
+        h.render().unwrap().save(dir.join("vna-live.png")).unwrap();
+    }
+}

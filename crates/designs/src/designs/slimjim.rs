@@ -39,7 +39,14 @@ fn diagram(a: f64, b: f64, gap: f64, tap: f64, ww: f64, fmt: &dyn Fn(f64) -> Str
     g.dot(cx, bot + 38.0, 3.0, hex(0x0a0e11));
     g.dot(xl, y_tap, 4.0, GOLD);
     g.dot(xr, y_tap, 4.0, GREY);
-    g.label(cx, bot + 66.0, "SMA here, slide both ends together for lowest SWR", GREEN, 13.0, Anchor::Middle);
+    g.label(
+        cx,
+        bot + 66.0,
+        "SMA here, slide both ends together for lowest SWR",
+        GREEN,
+        13.0,
+        Anchor::Middle,
+    );
     g.label(xl - 46.0, y_tap - 9.0, "centre pin", GOLD, 12.0, Anchor::End);
     g.label(xr + 46.0, y_tap - 26.0, "shield", GREY, 12.0, Anchor::Start);
     let yg = (y_of(b) + y_of(b + gap)) / 2.0;

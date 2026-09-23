@@ -1,8 +1,8 @@
 use crate::geometry::{Geometry, WireGeometry};
 use crate::gpu;
 use crate::mom::{
-    Directivity, FieldFn, Model, Pattern, build_model, directivity, far_field_vector,
-    pattern_of, segment_currents, solve_cpu,
+    Directivity, FieldFn, Model, Pattern, build_model, directivity, far_field_vector, pattern_of,
+    segment_currents, solve_cpu,
 };
 use crate::po::{hybrid_field, po_currents};
 use crate::polarisation::{Ellipse, ellipse_at};
@@ -105,8 +105,7 @@ pub fn solve_at(model: &Model, lam: f64, want_pattern: bool) -> SolveResult {
         let cur = Arc::new(currents);
         let field = match &model.po {
             Some(mesh) => {
-                let facets =
-                    po_currents(mesh, &segs, &cur, k, model.feed_point);
+                let facets = po_currents(mesh, &segs, &cur, k, model.feed_point);
                 result.hybrid = true;
                 hybrid_field(segs.clone(), cur.clone(), Arc::new(facets), k)
             }
@@ -229,7 +228,9 @@ pub fn tune_to_resonance(
     if brackets.is_empty() {
         return None;
     }
-    brackets.sort_by(|x, y| ((x.0 + x.1) / 2.0 - 1.0).abs().total_cmp(&((y.0 + y.1) / 2.0 - 1.0).abs()));
+    brackets.sort_by(|x, y| {
+        ((x.0 + x.1) / 2.0 - 1.0).abs().total_cmp(&((y.0 + y.1) / 2.0 - 1.0).abs())
+    });
     let (mut lo, mut hi) = brackets[0];
     let mut r_lo = at(lo);
     let mut r_hi = at(hi);

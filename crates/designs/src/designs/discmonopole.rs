@@ -1,6 +1,6 @@
 use crate::draw::{Anchor, Drawing, GOLD, GREY, SILVER, Stroke, hexa};
 use crate::feed_detail::vertical;
-use crate::{Build, ControlId, CutFile, Ctx, Design, Group, Output, Scene, row, total};
+use crate::{Build, ControlId, Ctx, CutFile, Design, Group, Output, Scene, row, total};
 use antenna_solver::geometry::{Geometry, Mesh, SurfaceGeometry};
 use antenna_solver::surface::mesh::{merge_meshes, mesh_profile};
 
@@ -69,7 +69,10 @@ impl Shape {
         let h = self.heights();
         let section = |y0: f64, y1: f64, stations: usize| {
             let m = mesh_profile(y0, y1, stations, |y| self.half_width(y), 0.0, across);
-            Mesh { vertices: m.vertices.iter().map(|v| [v[1], v[0], v[2]]).collect(), triangles: m.triangles }
+            Mesh {
+                vertices: m.vertices.iter().map(|v| [v[1], v[0], v[2]]).collect(),
+                triangles: m.triangles,
+            }
         };
         let count = |span: f64, target: f64| ((span / target).round() as usize).max(2);
         merge_meshes(
@@ -125,7 +128,13 @@ fn diagram(s: &Shape) -> Drawing {
     let gw = s.gp_w / 2.0 * sc;
     let nw = (s.neck / 2.0 * sc).max(2.0);
     let mut g = Drawing::new(w, height);
-    g.circle(cx, y(h.disc_centre), s.r * sc, Some(hexa(0xe8b23a, 0.18)), Some(Stroke::new(GOLD, 2.5)));
+    g.circle(
+        cx,
+        y(h.disc_centre),
+        s.r * sc,
+        Some(hexa(0xe8b23a, 0.18)),
+        Some(Stroke::new(GOLD, 2.5)),
+    );
     g.polygon(
         &[
             (cx - gw, y(0.0)),
@@ -138,13 +147,54 @@ fn diagram(s: &Shape) -> Drawing {
         Some(hexa(0xc9d1d6, 0.14)),
         Some(Stroke::new(SILVER, 2.5)),
     );
-    g.rect(cx - nw, y(h.disc_bottom), 2.0 * nw, (s.gap * sc).max(2.0), Some(hexa(0xe8b23a, 0.35)), Some(Stroke::new(GOLD, 1.0)));
+    g.rect(
+        cx - nw,
+        y(h.disc_bottom),
+        2.0 * nw,
+        (s.gap * sc).max(2.0),
+        Some(hexa(0xe8b23a, 0.35)),
+        Some(Stroke::new(GOLD, 1.0)),
+    );
     g.feed_flag(cx, y(h.feed), false);
     g.dim(cx, y(h.disc_centre), x(s.r), y(h.disc_centre), "r", 0.0, -6.0, Anchor::Middle);
-    g.dim(x(s.gp_w / 2.0) + 24.0, y(0.0), x(s.gp_w / 2.0) + 24.0, y(h.gp_top), "ground height", 28.0, 4.0, Anchor::Start);
-    g.dim(cx - gw, y(0.0) + 24.0, cx + gw, y(0.0) + 24.0, "ground width", 0.0, -6.0, Anchor::Middle);
-    g.dim(cx - nw - 30.0, y(h.gp_top), cx - nw - 30.0, y(h.disc_bottom), "gap", -8.0, 4.0, Anchor::End);
-    g.label(x(s.gp_w / 2.0) + 8.0, y(h.gp_top - s.taper / 2.0), "shoulder", GREY, 11.0, Anchor::Start);
+    g.dim(
+        x(s.gp_w / 2.0) + 24.0,
+        y(0.0),
+        x(s.gp_w / 2.0) + 24.0,
+        y(h.gp_top),
+        "ground height",
+        28.0,
+        4.0,
+        Anchor::Start,
+    );
+    g.dim(
+        cx - gw,
+        y(0.0) + 24.0,
+        cx + gw,
+        y(0.0) + 24.0,
+        "ground width",
+        0.0,
+        -6.0,
+        Anchor::Middle,
+    );
+    g.dim(
+        cx - nw - 30.0,
+        y(h.gp_top),
+        cx - nw - 30.0,
+        y(h.disc_bottom),
+        "gap",
+        -8.0,
+        4.0,
+        Anchor::End,
+    );
+    g.label(
+        x(s.gp_w / 2.0) + 8.0,
+        y(h.gp_top - s.taper / 2.0),
+        "shoulder",
+        GREY,
+        11.0,
+        Anchor::Start,
+    );
     g.beam_label(cx, height - 12.0, Some("equal in all directions around the vertical axis"));
     g
 }

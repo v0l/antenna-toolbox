@@ -46,7 +46,14 @@ pub struct ControlDef {
     pub options: &'static [&'static str],
 }
 
-const fn ctl(label: &'static str, def: f64, min: f64, max: f64, step: f64, integer: bool) -> ControlDef {
+const fn ctl(
+    label: &'static str,
+    def: f64,
+    min: f64,
+    max: f64,
+    step: f64,
+    integer: bool,
+) -> ControlDef {
     ControlDef { label, def, min, max, step, integer, options: &[] }
 }
 
@@ -194,9 +201,14 @@ pub struct Scene {
     pub omni_y: Option<f64>,
     pub pol: String,
     pub pattern_origin: Option<Vec3>,
+    pub up: Option<Vec3>,
 }
 
 impl Scene {
+    pub fn up(&self) -> Vec3 {
+        self.up.unwrap_or([0.0, 1.0, 0.0])
+    }
+
     pub fn beam_direction(&self) -> Vec3 {
         self.beam_vec.unwrap_or([0.0, 0.0, 1.0])
     }
@@ -299,5 +311,4 @@ impl Design {
     }
 }
 
-pub const MOXON: [f64; 4] = [0.3712, 0.0457, 0.0143, 0.0838];
 pub const DIPOLE_K: f64 = 0.478;

@@ -113,7 +113,13 @@ impl Vna for NanoVnaV2 {
         false
     }
 
-    fn scan(&mut self, start_hz: f64, stop_hz: f64, points: usize, _s21: bool) -> Result<Vec<Point>> {
+    fn scan(
+        &mut self,
+        start_hz: f64,
+        stop_hz: f64,
+        points: usize,
+        _s21: bool,
+    ) -> Result<Vec<Point>> {
         let step = (stop_hz - start_hz) / (points - 1) as f64;
         self.configure(start_hz.round() as u64, step.round() as u64, points as u16)?;
         self.reset()?;

@@ -5,3 +5,16 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+antenna-solver.workspace = true
+antenna-designs.workspace = true
+antenna-vna.workspace = true
+antenna-terrain.workspace = true
+egui.workspace = true
+eframe.workspace = true
+egui_bench.workspace = true
+ureq.workspace = true
+dirs.workspace = true
+image = { version = "0.25", default-features = false, features = ["png"] }
+
+[dev-dependencies]
+egui_kittest = { version = "0.35", features = ["wgpu", "eframe"] }

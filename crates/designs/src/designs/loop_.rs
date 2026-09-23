@@ -31,7 +31,14 @@ fn diagram(dia: f64, circ: f64, fmt: &dyn Fn(f64) -> String) -> Drawing {
     g.dot(cx, cy + r, 2.8, GOLD);
     g.dim(cx - r, cy, cx + r, cy, "diameter", 0.0, -8.0, Anchor::Middle);
     g.label(cx, cy + r + 26.0, "feed gap", GOLD, 11.0, Anchor::Middle);
-    g.label(cx, 30.0, format!("{} of wire around the circle", fmt(circ)), MUTED, 12.0, Anchor::Middle);
+    g.label(
+        cx,
+        30.0,
+        format!("{} of wire around the circle", fmt(circ)),
+        MUTED,
+        12.0,
+        Anchor::Middle,
+    );
     g.label(cx, h - 12.0, format!("{} across", fmt(dia)), MUTED, 12.0, Anchor::Middle);
     g.beam_label(w - 80.0, cy, Some("beam, both ways"));
     g

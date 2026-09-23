@@ -39,11 +39,32 @@ fn diagram(s: f64, disc_r: f64, gap: f64, half: f64, n: usize) -> Drawing {
     g.line(cx - disc_r * sc * 0.5, yd, cx + disc_r * sc * 0.5, yd, hex(0xb08020), 2.0);
     g.dot(cx, yd, 3.2, GOLD);
     g.dot(cx, ya, 3.2, GREY);
-    g.label(cx + disc_r * sc + 10.0, yd + 4.0, format!("disc, {n} spokes, on the pin"), GOLD, 12.0, Anchor::Start);
-    g.label(cx + bw * sc + 10.0, yb + 4.0, format!("cone, {n} spokes, on the shield"), SILVER, 12.0, Anchor::Start);
+    g.label(
+        cx + disc_r * sc + 10.0,
+        yd + 4.0,
+        format!("disc, {n} spokes, on the pin"),
+        GOLD,
+        12.0,
+        Anchor::Start,
+    );
+    g.label(
+        cx + bw * sc + 10.0,
+        yb + 4.0,
+        format!("cone, {n} spokes, on the shield"),
+        SILVER,
+        12.0,
+        Anchor::Start,
+    );
     g.dim(cx - disc_r * sc - 24.0, yd, cx - disc_r * sc - 24.0, ya, "gap", -6.0, 4.0, Anchor::End);
     g.mono(cx - bw * sc * 0.55, (ya + yb) / 2.0, "slant", DIM, 12.0, Anchor::End);
-    g.label(cx, h - 14.0, "side view · equal in all horizontal directions", GREEN, 12.0, Anchor::Middle);
+    g.label(
+        cx,
+        h - 14.0,
+        "side view · equal in all horizontal directions",
+        GREEN,
+        12.0,
+        Anchor::Middle,
+    );
     g
 }
 

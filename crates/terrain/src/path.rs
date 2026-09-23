@@ -71,7 +71,13 @@ pub struct Profile {
 }
 
 impl Profile {
-    pub fn fetch(dem: &Dem, a: Endpoint, b: Endpoint, k: f64, step: f64) -> Result<Profile, String> {
+    pub fn fetch(
+        dem: &Dem,
+        a: Endpoint,
+        b: Endpoint,
+        k: f64,
+        step: f64,
+    ) -> Result<Profile, String> {
         let d = a.at.distance_to(b.at);
         let n = ((d / step).ceil() as usize).clamp(2, 20_000);
         let samples = (0..=n)
@@ -182,7 +188,14 @@ pub fn radio_horizon(height: f64, k: f64) -> f64 {
     (2.0 * k * EARTH_RADIUS * height.max(0.0)).sqrt()
 }
 
-fn worst_edge(p: &Profile, lam: f64, i0: usize, i1: usize, h0: f64, h1: f64) -> Option<(usize, f64)> {
+fn worst_edge(
+    p: &Profile,
+    lam: f64,
+    i0: usize,
+    i1: usize,
+    h0: f64,
+    h1: f64,
+) -> Option<(usize, f64)> {
     let (d0, d1) = (p.samples[i0].dist, p.samples[i1].dist);
     let span = d1 - d0;
     if span <= 0.0 {
@@ -201,7 +214,16 @@ fn worst_edge(p: &Profile, lam: f64, i0: usize, i1: usize, h0: f64, h1: f64) -> 
         .max_by(|x, y| x.1.total_cmp(&y.1))
 }
 
-fn deygout(p: &Profile, lam: f64, i0: usize, i1: usize, h0: f64, h1: f64, depth: u8, out: &mut Vec<Obstacle>) -> f64 {
+fn deygout(
+    p: &Profile,
+    lam: f64,
+    i0: usize,
+    i1: usize,
+    h0: f64,
+    h1: f64,
+    depth: u8,
+    out: &mut Vec<Obstacle>,
+) -> f64 {
     let Some((im, v)) = worst_edge(p, lam, i0, i1, h0, h1) else {
         return 0.0;
     };
@@ -313,7 +335,12 @@ mod tests {
         assert!((r.distance - 66_900.0).abs() < 500.0);
         assert!(!r.line_of_sight);
         assert!((r.diffraction_db - 54.0).abs() < 3.0, "{}", r.diffraction_db);
-        let near = Profile::from_ground(ep(53.0, -9.0, 30.0), ep(53.0, -8.8, 30.0), 4.0 / 3.0, &vec![0.0; 401]);
+        let near = Profile::from_ground(
+            ep(53.0, -9.0, 30.0),
+            ep(53.0, -8.8, 30.0),
+            4.0 / 3.0,
+            &vec![0.0; 401],
+        );
         let rn = analyse(&near, 162.0);
         assert!(rn.line_of_sight && !rn.fresnel_clear && rn.diffraction_db < 6.0);
     }

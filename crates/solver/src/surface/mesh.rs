@@ -11,7 +11,9 @@ fn cross2(o: Vec2, a: Vec2, b: Vec2) -> f64 {
 
 fn signed_area(poly: &[Vec2]) -> f64 {
     let n = poly.len();
-    (0..n).map(|i| poly[i][0] * poly[(i + 1) % n][1] - poly[(i + 1) % n][0] * poly[i][1]).sum::<f64>()
+    (0..n)
+        .map(|i| poly[i][0] * poly[(i + 1) % n][1] - poly[(i + 1) % n][0] * poly[i][1])
+        .sum::<f64>()
         / 2.0
 }
 

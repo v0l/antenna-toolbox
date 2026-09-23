@@ -12,7 +12,8 @@ const LAM: f64 = 1000.0;
 const K: f64 = 2.0 * PI / LAM;
 
 fn dipole(len: f64, radius: f64) -> C64 {
-    let geo = WireGeometry::new(vec![vec![[-len / 2.0, 0.0, 0.0], [len / 2.0, 0.0, 0.0]]], [0.0; 3]);
+    let geo =
+        WireGeometry::new(vec![vec![[-len / 2.0, 0.0, 0.0], [len / 2.0, 0.0, 0.0]]], [0.0; 3]);
     let mut m = build_model(&geo, LAM, 2.0 * radius, 10_000);
     m.a = radius;
     solve_cpu(&m, K)[m.feed].inv()

@@ -70,9 +70,20 @@ pub trait Vna: Send {
     fn max_points(&self) -> usize;
     fn range_hz(&self) -> (f64, f64);
     fn calibrated_on_device(&self) -> bool;
-    fn scan(&mut self, start_hz: f64, stop_hz: f64, points: usize, s21: bool) -> Result<Vec<Point>>;
 
-    fn sweep(&mut self, start_hz: f64, stop_hz: f64, points: usize, s21: bool) -> Result<Vec<Point>> {
+    fn device_cal_status(&mut self) -> Option<String> {
+        None
+    }
+    fn scan(&mut self, start_hz: f64, stop_hz: f64, points: usize, s21: bool)
+    -> Result<Vec<Point>>;
+
+    fn sweep(
+        &mut self,
+        start_hz: f64,
+        stop_hz: f64,
+        points: usize,
+        s21: bool,
+    ) -> Result<Vec<Point>> {
         let points = points.max(2);
         let chunk = self.max_points().max(2);
         if points <= chunk {

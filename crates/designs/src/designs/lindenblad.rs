@@ -43,11 +43,34 @@ fn diagram(driven: f64, para: f64, radius: f64, cant: f64, fmt: &dyn Fn(f64) -> 
     g.line(cx, cy + 5.0, cx, cy + dv, GOLD, 4.0);
     g.dot(cx, cy, 3.5, GREEN);
     g.dim(cx - 44.0, cy - dv, cx - 44.0, cy + dv, "A", -8.0, 4.0, Anchor::End);
-    g.dim(cx, cy + rr * 0.34 + 26.0, cx + rr, cy + rr * 0.34 + 26.0, "R", 0.0, 16.0, Anchor::Middle);
-    g.label(cx + rr + 30.0, cy - 46.0, format!("4 parasitic wires, {} each", fmt(para)), SILVER, 12.0, Anchor::Start);
+    g.dim(
+        cx,
+        cy + rr * 0.34 + 26.0,
+        cx + rr,
+        cy + rr * 0.34 + 26.0,
+        "R",
+        0.0,
+        16.0,
+        Anchor::Middle,
+    );
+    g.label(
+        cx + rr + 30.0,
+        cy - 46.0,
+        format!("4 parasitic wires, {} each", fmt(para)),
+        SILVER,
+        12.0,
+        Anchor::Start,
+    );
     g.mono(cx + rr + 30.0, cy - 28.0, format!("canted {cant:.0}°"), DIM, 13.0, Anchor::Start);
     g.label(cx - rr - 30.0, cy + dv + 26.0, "driven dipole, vertical", GOLD, 12.0, Anchor::End);
-    g.label(cx, h - 12.0, "circular polarisation, equal all round, strongest near the horizon", GREEN, 13.0, Anchor::Middle);
+    g.label(
+        cx,
+        h - 12.0,
+        "circular polarisation, equal all round, strongest near the horizon",
+        GREEN,
+        13.0,
+        Anchor::Middle,
+    );
     g
 }
 

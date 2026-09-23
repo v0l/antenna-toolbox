@@ -131,7 +131,12 @@ pub fn plan_match(id: &str, z: C64, lam_mm: f64, z0: f64) -> MatchPlan {
     let mut line = needs_line.then(|| {
         let ideal = (after_balun.max(1.0) * z0).sqrt();
         let quarter = lam_mm / 4.0;
-        Line { ideal, pick: nearest_line(ideal), len_vf66: quarter * 0.66, len_vf82: quarter * 0.82 }
+        Line {
+            ideal,
+            pick: nearest_line(ideal),
+            len_vf66: quarter * 0.66,
+            len_vf82: quarter * 0.82,
+        }
     });
 
     let trial = |with_line: bool, line: &Option<Line>| {

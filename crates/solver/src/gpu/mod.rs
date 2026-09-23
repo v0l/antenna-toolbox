@@ -44,11 +44,7 @@ fn entry(binding: u32, ty: wgpu::BufferBindingType) -> wgpu::BindGroupLayoutEntr
     wgpu::BindGroupLayoutEntry {
         binding,
         visibility: wgpu::ShaderStages::COMPUTE,
-        ty: wgpu::BindingType::Buffer {
-            ty,
-            has_dynamic_offset: false,
-            min_binding_size: None,
-        },
+        ty: wgpu::BindingType::Buffer { ty, has_dynamic_offset: false, min_binding_size: None },
         count: None,
     }
 }
@@ -124,13 +120,7 @@ impl Gpu {
 
         let rwg_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("rwg"),
-            entries: &[
-                entry(0, RO),
-                entry(1, RO),
-                entry(2, RO),
-                entry(3, RW),
-                entry(4, UNI),
-            ],
+            entries: &[entry(0, RO), entry(1, RO), entry(2, RO), entry(3, RW), entry(4, UNI)],
         });
         let rwg_mod = module(include_str!("rwg.wgsl"));
         let rwg_fill = pipe(&rwg_layout, &rwg_mod, "fill_rwg");
@@ -148,7 +138,9 @@ impl Gpu {
         let usage = if read_only {
             wgpu::BufferUsages::STORAGE
         } else {
-            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST
+            wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_SRC
+                | wgpu::BufferUsages::COPY_DST
         };
         self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: None,
@@ -238,9 +230,26 @@ impl Gpu {
             .flat_map(|t| {
                 let (a, b, c) = (v[t.v[0]], v[t.v[1]], v[t.v[2]]);
                 [
-                    a[0], a[1], a[2], t.area, b[0], b[1], b[2], 0.0, c[0], c[1], c[2], 0.0,
-                    t.centre[0], t.centre[1], t.centre[2], 0.0, t.normal[0], t.normal[1],
-                    t.normal[2], 0.0,
+                    a[0],
+                    a[1],
+                    a[2],
+                    t.area,
+                    b[0],
+                    b[1],
+                    b[2],
+                    0.0,
+                    c[0],
+                    c[1],
+                    c[2],
+                    0.0,
+                    t.centre[0],
+                    t.centre[1],
+                    t.centre[2],
+                    0.0,
+                    t.normal[0],
+                    t.normal[1],
+                    t.normal[2],
+                    0.0,
                 ]
                 .map(|x| x as f32)
             })

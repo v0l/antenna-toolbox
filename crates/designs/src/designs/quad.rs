@@ -1,4 +1,4 @@
-use crate::draw::{Anchor, BOOM, DIM, Drawing, GOLD, GREY, INK, Stroke, hex, SILVER};
+use crate::draw::{Anchor, BOOM, DIM, Drawing, GOLD, GREY, INK, SILVER, Stroke, hex};
 use crate::feed_detail::inline;
 use crate::{Build, ControlId, Ctx, Design, Group, Output, Scene, Wire, row, total, wire};
 use antenna_solver::geometry::{Geometry, WireGeometry};
@@ -53,7 +53,14 @@ fn diagram(side_d: f64, side_r: f64, spacing: f64) -> Drawing {
     g.label(dx - rd - 10.0, dy + 4.0, "driven loop", GOLD, 12.0, Anchor::End);
     g.label(rx + 10.0, ry - rr - 8.0, "reflector loop", GREY, 12.0, Anchor::Start);
     g.dashed(dx + rd, dy, rx + rr, ry, DIM, 3.0, 3.0);
-    g.mono((dx + rd + rx + rr) / 2.0 + 8.0, (dy + ry) / 2.0 + 22.0, "spacing", DIM, 12.0, Anchor::Start);
+    g.mono(
+        (dx + rd + rx + rr) / 2.0 + 8.0,
+        (dy + ry) / 2.0 + 22.0,
+        "spacing",
+        DIM,
+        12.0,
+        Anchor::Start,
+    );
     g.feed_flag(dx, dy + rd, true);
     g.beam_label(w / 2.0, h - 14.0, Some("beam fires toward the viewer, away from the reflector"));
     g

@@ -2,7 +2,7 @@ use crate::draw::{Anchor, Drawing, GOLD, GREY, SILVER, Stroke};
 use crate::export::gores;
 use crate::feed_detail::inline;
 use crate::feeds::{FeedFrame, FeedKind, build_feed};
-use crate::{Build, ControlId, CutFile, Ctx, DIPOLE_K, Design, Group, Output, Scene, row, total};
+use crate::{Build, ControlId, Ctx, CutFile, DIPOLE_K, Design, Group, Output, Scene, row, total};
 use antenna_solver::geometry::{Geometry, Mesh, WireGeometry};
 use antenna_solver::surface::mesh::{merge_meshes, mesh_paraboloid, mesh_profile};
 
@@ -114,7 +114,9 @@ fn compute(c: &Ctx) -> Output {
         feed: inline(
             "feed dipole, one half",
             "feed dipole, other half",
-            Some("The feed points back into the dish, with the splash plate a quarter wave behind it."),
+            Some(
+                "The feed points back into the dish, with the splash plate a quarter wave behind it.",
+            ),
         ),
         notes: format!(
             "{}\n\n**The only design here where the reflector is not solved as unknowns.** A dish \

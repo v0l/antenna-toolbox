@@ -16,11 +16,16 @@ pub struct Element {
 
 pub fn yagi_scene(els: &[Element]) -> (Scene, WireGeometry) {
     let back = els.iter().map(|e| e.at).fold(0.0, f64::max);
-    let mut wires: Vec<Wire> = vec![Wire { p: vec![[0.0; 3], [0.0, 0.0, -back]], c: BOOM, w: 5.0, thin: false }];
+    let mut wires: Vec<Wire> =
+        vec![Wire { p: vec![[0.0; 3], [0.0, 0.0, -back]], c: BOOM, w: 5.0, thin: false }];
     for e in els {
         let z = -e.at;
         if e.feed {
-            wires.push(wire(vec![[-e.len / 2.0, 0.0, z], [-e.len * 0.02, 0.0, z]], e.colour3d, 3.5));
+            wires.push(wire(
+                vec![[-e.len / 2.0, 0.0, z], [-e.len * 0.02, 0.0, z]],
+                e.colour3d,
+                3.5,
+            ));
             wires.push(wire(vec![[e.len * 0.02, 0.0, z], [e.len / 2.0, 0.0, z]], e.colour3d, 3.5));
         } else {
             wires.push(wire(vec![[-e.len / 2.0, 0.0, z], [e.len / 2.0, 0.0, z]], e.colour3d, 3.5));
@@ -38,7 +43,9 @@ pub fn yagi_scene(els: &[Element]) -> (Scene, WireGeometry) {
             ..Default::default()
         },
         WireGeometry::new(
-            els.iter().map(|e| vec![[-e.len / 2.0, 0.0, -e.at], [e.len / 2.0, 0.0, -e.at]]).collect(),
+            els.iter()
+                .map(|e| vec![[-e.len / 2.0, 0.0, -e.at], [e.len / 2.0, 0.0, -e.at]])
+                .collect(),
             feed,
         ),
     )
@@ -72,7 +79,14 @@ pub fn yagi_diagram(els: &[Element], fmt: &dyn Fn(f64) -> String) -> Drawing {
         let (a, b) = (y(&pair[0]), y(&pair[1]));
         let x = cx - span * sc / 2.0 - 26.0;
         g.dashed(x, a, x, b, DIM, 3.0, 3.0);
-        g.mono(x + 8.0, (a + b) / 2.0 + 4.0, fmt(pair[1].at - pair[0].at), DIM, 12.0, Anchor::Start);
+        g.mono(
+            x + 8.0,
+            (a + b) / 2.0 + 4.0,
+            fmt(pair[1].at - pair[0].at),
+            DIM,
+            12.0,
+            Anchor::Start,
+        );
     }
     let feed = els.iter().find(|e| e.feed).expect("driven element");
     g.feed_flag(cx, y(feed), false);
@@ -100,7 +114,14 @@ fn compute2(c: &Ctx) -> Output {
     let s = c.P("spacing", spc * lam);
     let els = [
         Element { len: drv, label: "driven", colour: GOLD, colour3d: GOLD, feed: true, at: 0.0 },
-        Element { len: refl, label: "reflector", colour: PALE, colour3d: SILVER, feed: false, at: s },
+        Element {
+            len: refl,
+            label: "reflector",
+            colour: PALE,
+            colour3d: SILVER,
+            feed: false,
+            at: s,
+        },
     ];
     let (scene, solve) = yagi_scene(&els);
     Output {

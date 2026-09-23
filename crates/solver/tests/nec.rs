@@ -21,7 +21,14 @@ fn solve(v: &nec_vectors::Vector) -> (C64, f64) {
     let coeffs = solve_cpu(&m, k);
     let i = coeffs[m.feed];
     let cur = segment_currents(&m, &coeffs);
-    let field = far_field_vector(Arc::new(m.segs.clone()), Arc::new(cur), k, m.ground_z, m.images.clone(), None);
+    let field = far_field_vector(
+        Arc::new(m.segs.clone()),
+        Arc::new(cur),
+        k,
+        m.ground_z,
+        m.images.clone(),
+        None,
+    );
     let p_rad = radiated_power(&*pattern_of(field), k);
     let p_in = 0.5 * i.re;
     (i.inv(), p_rad / p_in)
@@ -37,7 +44,14 @@ fn wire_solver_agrees_with_nec2() {
         let ok = err < 0.05 * nec.norm() + 3.0;
         eprintln!(
             "{:<12} ours {:>7.1} {:>+7.1}j  nec2 {:>7.1} {:>+7.1}j  |dz| {:>5.1}  power balance {:.3} {}",
-            v.name, z.re, z.im, nec.re, nec.im, err, balance, if ok { "" } else { "FAIL" }
+            v.name,
+            z.re,
+            z.im,
+            nec.re,
+            nec.im,
+            err,
+            balance,
+            if ok { "" } else { "FAIL" }
         );
         if !ok || (balance - 1.0).abs() > 0.03 {
             failed.push(v.name);

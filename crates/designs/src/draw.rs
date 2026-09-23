@@ -106,7 +106,15 @@ impl Drawing {
         self.items.push(Item::Path { pts, closed, stroke: Some(stroke), fill: None });
     }
 
-    pub fn rect(&mut self, x: f64, y: f64, w: f64, h: f64, fill: Option<Rgba>, stroke: Option<Stroke>) {
+    pub fn rect(
+        &mut self,
+        x: f64,
+        y: f64,
+        w: f64,
+        h: f64,
+        fill: Option<Rgba>,
+        stroke: Option<Stroke>,
+    ) {
         self.polygon(&[(x, y), (x + w, y), (x + w, y + h), (x, y + h)], fill, stroke);
     }
 
@@ -153,17 +161,51 @@ impl Drawing {
         });
     }
 
-    pub fn label(&mut self, x: f64, y: f64, text: impl Into<String>, colour: Rgba, size: f64, anchor: Anchor) {
+    pub fn label(
+        &mut self,
+        x: f64,
+        y: f64,
+        text: impl Into<String>,
+        colour: Rgba,
+        size: f64,
+        anchor: Anchor,
+    ) {
         self.text_at(x, y, text, colour, size, anchor, Face::Sans);
     }
 
-    pub fn mono(&mut self, x: f64, y: f64, text: impl Into<String>, colour: Rgba, size: f64, anchor: Anchor) {
+    pub fn mono(
+        &mut self,
+        x: f64,
+        y: f64,
+        text: impl Into<String>,
+        colour: Rgba,
+        size: f64,
+        anchor: Anchor,
+    ) {
         self.text_at(x, y, text, colour, size, anchor, Face::Mono);
     }
 
-    pub fn dim(&mut self, x1: f64, y1: f64, x2: f64, y2: f64, label: &str, dx: f64, dy: f64, anchor: Anchor) {
+    pub fn dim(
+        &mut self,
+        x1: f64,
+        y1: f64,
+        x2: f64,
+        y2: f64,
+        label: &str,
+        dx: f64,
+        dy: f64,
+        anchor: Anchor,
+    ) {
         self.dashed(x1, y1, x2, y2, DIM, 3.0, 3.0);
-        self.text_at((x1 + x2) / 2.0 + dx, (y1 + y2) / 2.0 + dy, label, DIM, 13.0, anchor, Face::Mono);
+        self.text_at(
+            (x1 + x2) / 2.0 + dx,
+            (y1 + y2) / 2.0 + dy,
+            label,
+            DIM,
+            13.0,
+            anchor,
+            Face::Mono,
+        );
     }
 
     pub fn feed_flag(&mut self, x: f64, y: f64, below: bool) {

@@ -33,3 +33,22 @@ fn every_design_solves_to_something_physical() {
         assert!(!comp.output.diagram.items.is_empty());
     }
 }
+
+#[test]
+fn moxon_behaves_like_a_moxon() {
+    let lam = C / 162.0;
+    let fmt = |mm: f64| format!("{mm}");
+    let comp = antenna_designs::by_id("moxon").run(
+        lam,
+        2.0,
+        &fmt,
+        &HashMap::new(),
+        &default_controls(),
+        1.0,
+    );
+    let r = Prepared::new(&comp.output.solve, lam, 2.0, segment_cap()).solve(lam, true);
+    let fb = r.gain_dbi([0.0, 0.0, 1.0]).unwrap() - r.gain_dbi([0.0, 0.0, -1.0]).unwrap();
+    assert!((r.dbi.unwrap() - 6.1).abs() < 0.3, "{}", r.dbi.unwrap());
+    assert!(fb > 20.0, "F/B {fb}");
+    assert!((r.z - antenna_solver::C64::new(50.0, 0.0)).norm() < 12.0, "{}", r.z);
+}

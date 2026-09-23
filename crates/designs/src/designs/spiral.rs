@@ -1,7 +1,7 @@
 use crate::draw::{Anchor, BOOM, DIM, Drawing, GOLD, Stroke};
 use crate::export::{P2, flat, sample_curve};
 use crate::feed_detail::inline;
-use crate::{Build, ControlId, CutFile, Ctx, Design, Group, Output, Scene, row, total};
+use crate::{Build, ControlId, Ctx, CutFile, Design, Group, Output, Scene, row, total};
 use antenna_solver::geometry::{Geometry, Mesh, SurfaceGeometry};
 use antenna_solver::surface::mesh::{feed_edges, topology};
 use antenna_solver::units::C;
@@ -95,10 +95,14 @@ fn walk(s: &Spec, phase: f64) -> Vec<P2> {
     }
     thetas.push(s.theta_max);
 
-    let inbound: Vec<P2> = thetas.iter().rev().map(|&th| {
-        let p = arm(th);
-        [-p[0], -p[1]]
-    }).collect();
+    let inbound: Vec<P2> = thetas
+        .iter()
+        .rev()
+        .map(|&th| {
+            let p = arm(th);
+            [-p[0], -p[1]]
+        })
+        .collect();
     let diagonal = (2.0 * s.rho0).hypot(2.0 * s.stand_off);
     let segments = (2 * (diagonal / (2.0 * s.step)).round() as usize).max(4);
     let mut bridge = vec![[-s.rho0, s.stand_off]];

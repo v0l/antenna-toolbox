@@ -48,4 +48,3 @@ pub static DESIGNS: [&Design; 21] = [
 pub fn by_id(id: &str) -> &'static Design {
     DESIGNS.iter().copied().find(|d| d.id == id).unwrap_or(DESIGNS[0])
 }
-

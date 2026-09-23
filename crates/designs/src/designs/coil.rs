@@ -38,8 +38,24 @@ fn diagram(height: f64, dia: f64, turns: f64, fmt: &dyn Fn(f64) -> String) -> Dr
     g.polyline(&pts, GOLD, 2.6);
     g.dot(cx, base, 2.8, GOLD);
     g.dim(cx - 90.0, base, cx - 90.0, base - hh, "height", -8.0, 4.0, Anchor::End);
-    g.dim(cx - rr, base - hh - 22.0, cx + rr, base - hh - 22.0, "coil ø", 0.0, -8.0, Anchor::Middle);
-    g.label(cx + 120.0, base - hh / 2.0, format!("{turns} turns, {} tall", fmt(height)), MUTED, 12.0, Anchor::Start);
+    g.dim(
+        cx - rr,
+        base - hh - 22.0,
+        cx + rr,
+        base - hh - 22.0,
+        "coil ø",
+        0.0,
+        -8.0,
+        Anchor::Middle,
+    );
+    g.label(
+        cx + 120.0,
+        base - hh / 2.0,
+        format!("{turns} turns, {} tall", fmt(height)),
+        MUTED,
+        12.0,
+        Anchor::Start,
+    );
     g
 }
 
@@ -76,6 +92,7 @@ fn compute(c: &Ctx) -> Output {
             omni: true,
             omni_y: Some(height / 2.0),
             pol: "polarisation: vertical, omnidirectional in azimuth".into(),
+            up: Some([0.0, 0.0, 1.0]),
             ..Default::default()
         },
         solve: Geometry::Wire(

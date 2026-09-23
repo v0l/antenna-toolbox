@@ -15,7 +15,8 @@ pub struct NanoVnaH {
 impl NanoVnaH {
     pub fn open(path: &str) -> Result<Self> {
         let port = serialport::new(path, 115_200).timeout(Duration::from_millis(200)).open()?;
-        let mut vna = NanoVnaH { port, info: String::new(), version: String::new(), max_points: 101 };
+        let mut vna =
+            NanoVnaH { port, info: String::new(), version: String::new(), max_points: 101 };
         vna.drain();
         vna.version = vna.command("version", Duration::from_secs(3))?.join(" ");
         let info = vna.command("info", Duration::from_secs(3))?;
@@ -107,9 +108,24 @@ impl Vna for NanoVnaH {
         true
     }
 
-    fn scan(&mut self, start_hz: f64, stop_hz: f64, points: usize, s21: bool) -> Result<Vec<Point>> {
+    fn device_cal_status(&mut self) -> Option<String> {
+        self.cal_status().ok()
+    }
+
+    fn scan(
+        &mut self,
+        start_hz: f64,
+        stop_hz: f64,
+        points: usize,
+        s21: bool,
+    ) -> Result<Vec<Point>> {
         let mask = if s21 { 7 } else { 3 };
-        let cmd = format!("scan {} {} {} {mask}", start_hz.round() as u64, stop_hz.round() as u64, points);
+        let cmd = format!(
+            "scan {} {} {} {mask}",
+            start_hz.round() as u64,
+            stop_hz.round() as u64,
+            points
+        );
         let lines = self.command(&cmd, Duration::from_secs(60))?;
         let pts = parse_scan(&lines, s21)?;
         if pts.len() != points {

@@ -78,7 +78,13 @@ struct SourceIntegrals {
     vector: [C64; 3],
 }
 
-fn source_integrals(tri: &Triangle, verts: &[Vec3], free: Vec3, r: Vec3, k: f64) -> SourceIntegrals {
+fn source_integrals(
+    tri: &Triangle,
+    verts: &[Vec3],
+    free: Vec3,
+    r: Vec3,
+    k: f64,
+) -> SourceIntegrals {
     let (a, b, c) = (verts[tri.v[0]], verts[tri.v[1]], verts[tri.v[2]]);
     let mut sr = C64::new(0.0, 0.0);
     let mut vr = [C64::new(0.0, 0.0); 3];

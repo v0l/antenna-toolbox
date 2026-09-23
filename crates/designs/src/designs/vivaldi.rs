@@ -1,7 +1,7 @@
 use crate::draw::{Anchor, Drawing, GOLD, GREY, Stroke, hexa};
 use crate::export::{flat, sample_curve};
 use crate::feed_detail::inline;
-use crate::{Build, ControlId, CutFile, Ctx, Design, Group, Output, Scene, row, total};
+use crate::{Build, ControlId, Ctx, CutFile, Design, Group, Output, Scene, row, total};
 use antenna_solver::geometry::{Geometry, Mesh, SurfaceGeometry};
 use antenna_solver::surface::mesh::{merge_meshes, mesh_strip};
 
@@ -35,7 +35,15 @@ struct Shape {
 }
 
 impl Shape {
-    fn new(flare_len: f64, throat: f64, w0: f64, mouth: f64, band: f64, bridge: f64, cell: f64) -> Self {
+    fn new(
+        flare_len: f64,
+        throat: f64,
+        w0: f64,
+        mouth: f64,
+        band: f64,
+        bridge: f64,
+        cell: f64,
+    ) -> Self {
         let x_back = -throat;
         let total = flare_len - x_back;
         let stations = ((total / cell).round() as usize).max(8);

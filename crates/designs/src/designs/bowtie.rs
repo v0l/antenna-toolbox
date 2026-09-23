@@ -1,6 +1,6 @@
 use crate::draw::{Anchor, DIM, Drawing, GOLD, GREY, Stroke, hexa};
 use crate::feed_detail::inline;
-use crate::{Build, ControlId, CutFile, Ctx, Design, Group, Output, Scene, row, total};
+use crate::{Build, ControlId, Ctx, CutFile, Design, Group, Output, Scene, row, total};
 use antenna_solver::geometry::{Geometry, SurfaceGeometry};
 use antenna_solver::surface::mesh::mesh_profile;
 
@@ -65,7 +65,12 @@ fn diagram(arm: f64, gap: f64, flare: f64, half: f64) -> Drawing {
     let mut g = Drawing::new(w, h);
     for s in [-1.0, 1.0] {
         g.polygon(
-            &[(cx + s * xg, cy - 2.0), (cx + s * xt, cy - hh), (cx + s * xt, cy + hh), (cx + s * xg, cy + 2.0)],
+            &[
+                (cx + s * xg, cy - 2.0),
+                (cx + s * xt, cy - hh),
+                (cx + s * xt, cy + hh),
+                (cx + s * xg, cy + 2.0),
+            ],
             Some(hexa(0xe8b23a, 0.18)),
             Some(Stroke::new(GOLD, 2.5)),
         );

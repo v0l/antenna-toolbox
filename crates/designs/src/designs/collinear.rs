@@ -18,7 +18,14 @@ pub static COLLINEAR: Design = Design {
     compute,
 };
 
-fn diagram(n: usize, rad: f64, arm: f64, d: f64, phased: bool, fmt: &dyn Fn(f64) -> String) -> Drawing {
+fn diagram(
+    n: usize,
+    rad: f64,
+    arm: f64,
+    d: f64,
+    phased: bool,
+    fmt: &dyn Fn(f64) -> String,
+) -> Drawing {
     let (w, h) = (640.0, 560.0);
     let total = n as f64 * rad + (n - 1) as f64 * d;
     let sc = 430.0 / total;
@@ -34,7 +41,12 @@ fn diagram(n: usize, rad: f64, arm: f64, d: f64, phased: bool, fmt: &dyn Fn(f64)
         if i < n - 1 {
             if phased {
                 g.polyline(
-                    &[(cx, y_of(y)), (cx + arm_px, y_of(y)), (cx + arm_px, y_of(y + d)), (cx, y_of(y + d))],
+                    &[
+                        (cx, y_of(y)),
+                        (cx + arm_px, y_of(y)),
+                        (cx + arm_px, y_of(y + d)),
+                        (cx, y_of(y + d)),
+                    ],
                     GOLD,
                     2.4,
                 );
@@ -43,16 +55,44 @@ fn diagram(n: usize, rad: f64, arm: f64, d: f64, phased: bool, fmt: &dyn Fn(f64)
         }
     }
     g.dot(cx, y_of(rad / 2.0), 4.0, GREEN);
-    g.label(cx + 16.0, y_of(rad / 2.0) + 4.0, "SMA, centre of the bottom section", GREEN, 12.0, Anchor::Start);
+    g.label(
+        cx + 16.0,
+        y_of(rad / 2.0) + 4.0,
+        "SMA, centre of the bottom section",
+        GREEN,
+        12.0,
+        Anchor::Start,
+    );
     g.dim(cx - 90.0, y_of(0.0), cx - 90.0, y_of(rad), "L", -8.0, 4.0, Anchor::End);
     g.dim(cx - 150.0, y_of(0.0), cx - 150.0, y_of(total), "H", -8.0, 4.0, Anchor::End);
     let joint = y_of(rad + d / 2.0);
     if phased {
         g.line(cx + arm_px + 8.0, joint, cx + arm_px + 64.0, joint - 20.0, DIM, 1.0);
-        g.mono(cx + arm_px + 68.0, joint - 22.0, format!("P arm, {}", fmt(arm)), DIM, 13.0, Anchor::Start);
-        g.mono(cx + arm_px + 68.0, joint - 6.0, format!("S gap, {}", fmt(d)), DIM, 13.0, Anchor::Start);
+        g.mono(
+            cx + arm_px + 68.0,
+            joint - 22.0,
+            format!("P arm, {}", fmt(arm)),
+            DIM,
+            13.0,
+            Anchor::Start,
+        );
+        g.mono(
+            cx + arm_px + 68.0,
+            joint - 6.0,
+            format!("S gap, {}", fmt(d)),
+            DIM,
+            13.0,
+            Anchor::Start,
+        );
     } else {
-        g.label(cx + 40.0, joint, "no phasing: sections fight each other", GOLD, 12.0, Anchor::Start);
+        g.label(
+            cx + 40.0,
+            joint,
+            "no phasing: sections fight each other",
+            GOLD,
+            12.0,
+            Anchor::Start,
+        );
     }
     g.label(
         cx,
@@ -92,7 +132,10 @@ fn compute(c: &Ctx) -> Output {
         }
     }
     let ceiling = 10.0 * (2.0 * total_h / lam).log10();
-    let mut rows = vec![row("**L** each radiating section", c.fmt(rad)), row("sections stacked", n.to_string())];
+    let mut rows = vec![
+        row("**L** each radiating section", c.fmt(rad)),
+        row("sections stacked", n.to_string()),
+    ];
     if phased {
         rows.push(row("**P** phasing arm, each of two", c.fmt(arm)));
         rows.push(row("**S** gap between hairpin arms", c.fmt(d)));
@@ -101,10 +144,7 @@ fn compute(c: &Ctx) -> Output {
         row("**H** total height", c.fmt(total_h)),
         row("height in wavelengths", format!("{:.2} λ", total_h / lam)),
         row("line-source estimate, 2H/λ", format!("{ceiling:.1} dBi")),
-        total(
-            "total wire",
-            c.fmt(total_h + if phased { (n - 1) as f64 * 2.0 * arm } else { 0.0 }),
-        ),
+        total("total wire", c.fmt(total_h + if phased { (n - 1) as f64 * 2.0 * arm } else { 0.0 })),
     ]);
     Output {
         spec: if phased {

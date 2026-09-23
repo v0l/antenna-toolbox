@@ -40,7 +40,10 @@ fn diagram(arm: f64, inc: f64) -> Drawing {
     g.line(cx, cy + 14.0, cx, cy + 40.0, MUTED, 4.0);
     g.label(cx + 10.0, cy + 34.0, "coax, straight down", MUTED, 12.0, Anchor::Start);
     g.stroke_path(
-        vec![[(cx - dx) as f32, (cy - dy - 26.0) as f32], [(cx + dx) as f32, (cy - dy - 26.0) as f32]],
+        vec![
+            [(cx - dx) as f32, (cy - dy - 26.0) as f32],
+            [(cx + dx) as f32, (cy - dy - 26.0) as f32],
+        ],
         false,
         Stroke::dashed(GREEN, 1.0, 4.0, 4.0),
     );
