@@ -1,3 +1,4 @@
+pub mod analysis;
 pub mod geometry;
 pub mod gpu;
 pub mod linalg;

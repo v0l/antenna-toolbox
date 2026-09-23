@@ -201,9 +201,14 @@ pub struct Scene {
     pub omni_y: Option<f64>,
     pub pol: String,
     pub pattern_origin: Option<Vec3>,
+    pub up: Option<Vec3>,
 }
 
 impl Scene {
+    pub fn up(&self) -> Vec3 {
+        self.up.unwrap_or([0.0, 1.0, 0.0])
+    }
+
     pub fn beam_direction(&self) -> Vec3 {
         self.beam_vec.unwrap_or([0.0, 0.0, 1.0])
     }

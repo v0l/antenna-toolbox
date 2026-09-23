@@ -256,5 +256,62 @@ pub fn smith(
     );
 }
 
+pub fn polar(
+    ui: &mut Ui,
+    size: f32,
+    cut: &antenna_solver::analysis::Cut,
+    peak: f64,
+    title: &str,
+    zero: &str,
+) {
+    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(size), Sense::hover());
+    let p = ui.painter_at(rect);
+    p.rect_filled(rect, 2.0, WELL);
+    let c = rect.center() + Vec2::new(0.0, 6.0);
+    let r = size / 2.0 - 20.0;
+    let floor = 30.0;
+    let rad = |g: f64| ((g - peak + floor) / floor).clamp(0.0, 1.0) as f32 * r;
+    let at = |deg: f64, g: f64| {
+        let a = deg.to_radians() as f32;
+        c + Vec2::new(a.cos(), -a.sin()) * rad(g)
+    };
+    for db in [0.0, -3.0, -10.0, -20.0] {
+        let colour = if db == -3.0 { READOUT_DIM } else { ETCH };
+        p.circle_stroke(c, rad(peak + db), Stroke::new(1.0, colour));
+    }
+    for k in 0..12 {
+        let a = (k as f32 * 30.0).to_radians();
+        p.line_segment([c, c + Vec2::new(a.cos(), -a.sin()) * r], Stroke::new(1.0, ETCH));
+    }
+    let pts: Vec<Pos2> = cut.degrees.iter().zip(&cut.gain_dbi).map(|(&d, &g)| at(d, g)).collect();
+    let mut closed = pts.clone();
+    if let Some(&first) = pts.first() {
+        closed.push(first);
+    }
+    p.add(Shape::line(closed, Stroke::new(1.8, TRACE)));
+    let small = theme::legend_font(10.0);
+    p.text(rect.left_top() + Vec2::new(6.0, 4.0), Align2::LEFT_TOP, title, small.clone(), LEGEND);
+    p.text(Pos2::new(c.x + r + 2.0, c.y - 4.0), Align2::RIGHT_BOTTOM, zero, small.clone(), LEGEND);
+    p.text(
+        rect.right_top() + Vec2::new(-6.0, 4.0),
+        Align2::RIGHT_TOP,
+        format!("{peak:.1} dBi peak"),
+        theme::figure(10.0),
+        VALUE,
+    );
+    if let Some(pos) = resp.hover_pos() {
+        let v = pos - c;
+        let deg = (-v.y).atan2(v.x).to_degrees().rem_euclid(360.0) as f64;
+        let i = (deg.round() as usize) % cut.gain_dbi.len();
+        p.text(
+            rect.left_bottom() + Vec2::new(6.0, -4.0),
+            Align2::LEFT_BOTTOM,
+            format!("{:.0}° · {:.1} dBi", cut.degrees[i], cut.gain_dbi[i]),
+            theme::figure(10.0),
+            VALUE,
+        );
+    }
+}
+
 pub const GREEN: Color32 = Color32::from_rgb(0x6f, 0xbf, 0x73);
 pub const GOLD: Color32 = Color32::from_rgb(0xe8, 0xb2, 0x3a);

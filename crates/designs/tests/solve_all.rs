@@ -52,3 +52,24 @@ fn moxon_behaves_like_a_moxon() {
     assert!(fb > 20.0, "F/B {fb}");
     assert!((r.z - antenna_solver::C64::new(50.0, 0.0)).norm() < 12.0, "{}", r.z);
 }
+
+#[test]
+fn moxon_pattern_metrics_look_like_a_moxon() {
+    let lam = C / 162.0;
+    let fmt = |mm: f64| format!("{mm}");
+    let comp = antenna_designs::by_id("moxon").run(
+        lam,
+        2.0,
+        &fmt,
+        &HashMap::new(),
+        &default_controls(),
+        1.0,
+    );
+    let r = Prepared::new(&comp.output.solve, lam, 2.0, segment_cap()).solve(lam, true);
+    let m = antenna_solver::analysis::analyse(&r, comp.output.scene.up()).unwrap();
+    assert!(m.front_to_back > 20.0, "F/B {}", m.front_to_back);
+    assert!(m.peak_dir[2] > 0.99, "peak {:?}", m.peak_dir);
+    let az = m.beamwidth_azimuth.unwrap();
+    let el = m.beamwidth_elevation.unwrap();
+    assert!((50.0..90.0).contains(&az) && (80.0..160.0).contains(&el), "az {az} el {el}");
+}

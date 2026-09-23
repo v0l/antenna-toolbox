@@ -1,4 +1,5 @@
 mod charts;
+mod custom;
 mod design;
 mod drawing;
 mod map;
@@ -106,9 +107,13 @@ impl eframe::App for App {
         });
 
         egui::CentralPanel::default().show(ui, |ui| {
+            if self.tab == Tab::Design {
+                self.design.central(ui);
+                return;
+            }
             let out = egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
                 match self.tab {
-                    Tab::Design => self.design.central(ui),
+                    Tab::Design => {}
                     Tab::Vna => self.vna.central(ui),
                     Tab::Path => self.path.central(ui),
                 }
@@ -198,6 +203,11 @@ mod tests {
             settle(&mut h, 2500);
             h.render().unwrap().save(dir.join(format!("design-{id}.png"))).unwrap();
         }
+        h.state_mut().design.open_template_as_wires();
+        h.state_mut().design.custom.ground =
+            custom::Ground::Real(antenna_solver::geometry::RealGround::AVERAGE);
+        settle(&mut h, 3000);
+        h.render().unwrap().save(dir.join("design-custom.png")).unwrap();
         for (tab, name) in [(Tab::Vna, "vna"), (Tab::Path, "path")] {
             h.state_mut().tab = tab;
             settle(&mut h, 4000);

@@ -12,6 +12,7 @@ pub fn snapshot(app: &App) -> BTreeMap<&'static str, String> {
     m.insert("design", d.design.id.to_string());
     m.insert("freq", d.freq.to_string());
     m.insert("wire", d.wire.to_string());
+    m.insert("metal", format!("{:?}", d.material));
     m.insert("span", d.span.to_string());
     m.insert("z0", d.z0.to_string());
     m.insert("site_lat", p.site.0.to_string());
@@ -59,6 +60,11 @@ pub fn load(app: &mut App) {
     }
     num("freq", &mut app.design.freq);
     num("wire", &mut app.design.wire);
+    if let Some(m) = m.get("metal") {
+        if let Some(found) = crate::design::Material::ALL.iter().find(|x| format!("{x:?}") == *m) {
+            app.design.material = *found;
+        }
+    }
     num("span", &mut app.design.span);
     num("z0", &mut app.design.z0);
     let p = &mut app.path;
