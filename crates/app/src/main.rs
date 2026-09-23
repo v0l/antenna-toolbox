@@ -205,6 +205,35 @@ mod tests {
         }
     }
 
+    fn resonant(centre: f64, reactance: f64) -> Vec<antenna_vna::Point> {
+        (0..201)
+            .map(|i| {
+                let f = 800e6 + i as f64 * 0.5e6;
+                let w = f / centre;
+                let z = antenna_vna::C64::new(62.0, reactance * (w - 1.0 / w));
+                antenna_vna::Point { freq: f, s11: (z - 50.0) / (z + 50.0), s21: None }
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_single_sweep_rescales_and_a_continuous_one_holds_still() {
+        let mut h = Harness::builder().with_size(egui::vec2(1600.0, 1000.0)).build_eframe(|cc| {
+            egui_bench::install(&cc.egui_ctx);
+            App::new()
+        });
+        h.state_mut().tab = Tab::Vna;
+        h.state_mut().vna.deliver(resonant(880e6, 900.0), false);
+        h.run_steps(2);
+        let first = h.state().vna.trace_scales();
+        h.state_mut().vna.deliver(resonant(880e6, 4000.0), true);
+        h.run_steps(2);
+        assert_eq!(h.state().vna.trace_scales(), first, "continuous sweep rescaled");
+        h.state_mut().vna.deliver(resonant(880e6, 4000.0), false);
+        h.run_steps(2);
+        assert_ne!(h.state().vna.trace_scales(), first, "single sweep did not rescale");
+    }
+
     #[test]
     #[ignore = "renders a synthetic sweep to target/shots"]
     fn render_vna_display() {

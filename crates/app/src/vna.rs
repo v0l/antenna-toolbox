@@ -144,6 +144,22 @@ impl VnaTab {
     }
 
     #[cfg(test)]
+    pub fn deliver(&mut self, pts: Vec<Point>, continuous: bool) {
+        let (tx, _rx) = channel();
+        let (reply_tx, reply_rx) = channel();
+        let _ = reply_tx.send(Reply::Swept(Ok(pts)));
+        self.continuous = continuous;
+        self.link = Some(Link { tx, job: Job::from_receiver(reply_rx) });
+        self.poll();
+        self.link = None;
+    }
+
+    #[cfg(test)]
+    pub fn trace_scales(&self) -> Vec<(f64, f64)> {
+        self.traces.iter().map(|t| (t.per_div, t.bottom)).collect()
+    }
+
+    #[cfg(test)]
     pub fn live_sweep(&mut self, ctx: &egui::Context) {
         self.centre_on_target();
         self.connect(ctx);
@@ -174,6 +190,7 @@ impl VnaTab {
                 }
                 Reply::Swept(Ok(pts)) => {
                     self.waiting = false;
+                    let captured = self.capture.is_some();
                     if let Some(std) = self.capture.take() {
                         self.cal.store(std, &pts);
                         self.message = Some((
@@ -184,6 +201,8 @@ impl VnaTab {
                     self.raw = pts;
                     if self.continuous {
                         self.request();
+                    } else if !captured {
+                        self.fitted = false;
                     }
                 }
                 Reply::Swept(Err(e)) => {

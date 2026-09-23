@@ -42,6 +42,11 @@ impl<T: Send + 'static> Job<T> {
         Job { rx, cancel }
     }
 
+    #[cfg(test)]
+    pub fn from_receiver(rx: Receiver<T>) -> Self {
+        Job { rx, cancel: Arc::new(AtomicBool::new(false)) }
+    }
+
     pub fn poll(&mut self) -> Vec<T> {
         self.rx.try_iter().collect()
     }
