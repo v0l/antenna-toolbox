@@ -68,6 +68,7 @@ pub struct Params {
     pub time: f64,
     pub location: f64,
     pub situation: f64,
+    pub sea_auto: bool,
 }
 
 impl Default for Params {
@@ -82,6 +83,7 @@ impl Default for Params {
             time: 50.0,
             location: 50.0,
             situation: 50.0,
+            sea_auto: false,
         }
     }
 }

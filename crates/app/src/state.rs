@@ -37,6 +37,7 @@ pub fn snapshot(app: &App) -> BTreeMap<&'static str, String> {
     m.insert("itm_climate", (p.itm.climate as u8).to_string());
     m.insert("itm_ground", p.ground_index().to_string());
     m.insert("itm_vertical", p.itm.vertical.to_string());
+    m.insert("itm_sea_auto", p.itm.sea_auto.to_string());
     m.insert("itm_n0", p.itm.n_0.to_string());
     m.insert("itm_time", p.itm.time.to_string());
     m.insert("itm_situation", p.itm.situation.to_string());
@@ -137,6 +138,9 @@ pub fn load(app: &mut App) {
     }
     if let Some(v) = m.get("itm_vertical").and_then(|v| v.parse().ok()) {
         p.itm.vertical = v;
+    }
+    if let Some(v) = m.get("itm_sea_auto").and_then(|v| v.parse().ok()) {
+        p.itm.sea_auto = v;
     }
     num("vna_target", &mut app.vna.target);
     num("vna_z0", &mut app.vna.z0);

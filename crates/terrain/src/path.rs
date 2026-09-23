@@ -282,8 +282,8 @@ pub fn analyse(p: &Profile, freq_mhz: f64, params: &Params) -> Analysis {
     let diffraction = deygout(p, lam, 0, p.samples.len() - 1, ha, hb, 1, &mut obstacles)
         .max(smooth_earth_db(freq_mhz, d, ha - floor, hb - floor, p.k));
     obstacles.sort_by(|a, b| a.dist.total_cmp(&b.dist));
-    let ground: Vec<f64> = p.samples.iter().map(|s| s.ground).collect();
     let step = d / (ground.len() - 1) as f64;
+    let params = &ground_constants(params, &ground);
     let itm = itm::point_to_point(
         p.a.height_agl.max(0.5),
         p.b.height_agl.max(0.5),
@@ -315,6 +315,20 @@ pub fn analyse(p: &Profile, freq_mhz: f64, params: &Params) -> Analysis {
 
 pub const ITM_CEILING: f64 = 3000.0;
 
+pub const SEA: (f64, f64) = (80.0, 5.0);
+
+pub fn ground_constants(params: &Params, ground: &[f64]) -> Params {
+    if !params.sea_auto {
+        return *params;
+    }
+    let sea = ground.iter().filter(|g| **g <= 0.5).count();
+    if sea * 2 > ground.len() {
+        Params { epsilon: SEA.0, sigma: SEA.1, ..*params }
+    } else {
+        *params
+    }
+}
+
 pub fn arrival_angle(ground: &[f64], step: f64, h_a: f64, h_b: f64, k: f64) -> f64 {
     let n = ground.len() - 1;
     let curve = 2.0 * k * EARTH_RADIUS;
@@ -334,6 +348,7 @@ pub fn path_loss(
     freq_mhz: f64,
     params: &Params,
 ) -> f64 {
+    let params = &ground_constants(params, ground);
     if h_a <= ITM_CEILING
         && h_b <= ITM_CEILING
         && let Ok(r) =
@@ -438,6 +453,20 @@ mod tests {
             beyond > fspl_far + 10.0,
             "past the {horizon:.0} km horizon: {beyond} vs {fspl_far}"
         );
+    }
+
+    #[test]
+    fn a_mostly_sea_path_uses_sea_water() {
+        let auto = Params { sea_auto: true, ..Params::default() };
+        let mut g = vec![0.0; 100];
+        g[..30].fill(40.0);
+        assert_eq!(ground_constants(&auto, &g).sigma, SEA.1);
+        g[..70].fill(40.0);
+        assert_eq!(ground_constants(&auto, &g).sigma, Params::default().sigma);
+        assert_eq!(ground_constants(&Params::default(), &[0.0; 10]).sigma, Params::default().sigma);
+        let land = path_loss(&vec![0.0; 401], 100.0, 10.0, 10.0, 162.0, &Params::default());
+        let sea = path_loss(&vec![0.0; 401], 100.0, 10.0, 10.0, 162.0, &auto);
+        assert!(land != sea, "{land} {sea}");
     }
 
     #[test]

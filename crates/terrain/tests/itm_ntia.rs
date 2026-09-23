@@ -27,6 +27,7 @@ fn matches_the_ntia_reference_cases() {
             time: v[8],
             location: v[9],
             situation: v[10],
+            sea_auto: false,
         };
         let r = point_to_point(v[0], v[1], ground, pfl[1], v[5], &p).unwrap();
         assert!((r.loss_db - v[12]).abs() < 0.01, "case {n}: {} vs {}", r.loss_db, v[12]);

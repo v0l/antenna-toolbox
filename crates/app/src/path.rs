@@ -149,7 +149,11 @@ impl Default for PathTab {
             cable_db: 1.0,
             sens_dbm: -107.0,
             site_transmits: false,
-            itm: Params { climate: Climate::MaritimeTemperateOverLand, ..Params::default() },
+            itm: Params {
+                climate: Climate::MaritimeTemperateOverLand,
+                sea_auto: true,
+                ..Params::default()
+            },
             radius_km: 60.0,
             show_coverage: true,
             opacity: 0.75,
@@ -526,6 +530,19 @@ impl PathTab {
                     self.itm.sigma = GROUNDS[g].2;
                 }
             });
+            row_help(
+                ui,
+                "sea paths",
+                "When more than half of a path is at sea level, use sea water for it instead of the ground above. Longley-Rice takes one set of ground constants per path.",
+                |ui| {
+                    choice(
+                        ui,
+                        "sea-auto",
+                        &mut self.itm.sea_auto,
+                        [(true, "sea water".to_string()), (false, "as above".to_string())],
+                    );
+                },
+            );
             row(ui, "polarisation", |ui| {
                 choice(
                     ui,
