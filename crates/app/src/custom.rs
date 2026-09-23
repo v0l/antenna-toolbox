@@ -276,7 +276,7 @@ impl Custom {
         if self.ground != Ground::Free {
             hint(
                 ui,
-                "The ground is the plane z = 0. Real ground uses the reflection-coefficient approximation, the same as NEC-2's GN 0.",
+                "The ground is the plane z = 0. Real ground uses Sommerfeld's exact solution, the same as NEC-2's GN 2, so wires close to the ground are handled properly.",
             );
         }
         ui.add_space(4.0);
