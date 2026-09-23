@@ -1,4 +1,6 @@
+pub mod coverage;
 pub mod dem;
+pub mod itm;
 pub mod path;
 
 pub use dem::{Dem, TileId};

@@ -28,6 +28,13 @@ pub fn snapshot(app: &App) -> BTreeMap<&'static str, String> {
     m.insert("far_dbi", p.far_dbi.to_string());
     m.insert("cable_db", p.cable_db.to_string());
     m.insert("sens_dbm", p.sens_dbm.to_string());
+    m.insert("itm_climate", (p.itm.climate as u8).to_string());
+    m.insert("itm_ground", p.ground_index().to_string());
+    m.insert("itm_vertical", p.itm.vertical.to_string());
+    m.insert("itm_n0", p.itm.n_0.to_string());
+    m.insert("itm_time", p.itm.time.to_string());
+    m.insert("itm_situation", p.itm.situation.to_string());
+    m.insert("radius_km", p.radius_km.to_string());
     m.insert("vna_points", v.points.to_string());
     m.insert("vna_target", v.target.to_string());
     m.insert("vna_z0", v.z0.to_string());
@@ -81,6 +88,28 @@ pub fn load(app: &mut App) {
     num("far_dbi", &mut p.far_dbi);
     num("cable_db", &mut p.cable_db);
     num("sens_dbm", &mut p.sens_dbm);
+    num("itm_n0", &mut p.itm.n_0);
+    num("itm_time", &mut p.itm.time);
+    num("itm_situation", &mut p.itm.situation);
+    num("radius_km", &mut p.radius_km);
+    if let Some(c) = m
+        .get("itm_climate")
+        .and_then(|v| v.parse::<usize>().ok())
+        .and_then(|c| antenna_terrain::itm::Climate::ALL.get(c.wrapping_sub(1)))
+    {
+        p.itm.climate = *c;
+    }
+    if let Some(g) = m
+        .get("itm_ground")
+        .and_then(|v| v.parse::<usize>().ok())
+        .and_then(|g| crate::path::GROUNDS.get(g))
+    {
+        p.itm.epsilon = g.1;
+        p.itm.sigma = g.2;
+    }
+    if let Some(v) = m.get("itm_vertical").and_then(|v| v.parse().ok()) {
+        p.itm.vertical = v;
+    }
     num("vna_target", &mut app.vna.target);
     num("vna_z0", &mut app.vna.z0);
     if let Some(n) = m.get("vna_points").and_then(|v| v.parse().ok()) {

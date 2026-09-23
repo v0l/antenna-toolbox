@@ -1,4 +1,5 @@
 use crate::dem::Dem;
+use crate::itm::{self, Params};
 
 pub const EARTH_RADIUS: f64 = 6_371_008.8;
 pub const C: f64 = 299_792_458.0;
@@ -141,6 +142,8 @@ pub struct Analysis {
     pub freq_mhz: f64,
     pub fspl_db: f64,
     pub diffraction_db: f64,
+    pub itm: Result<itm::Result, itm::Error>,
+    pub loss_db: f64,
     pub worst_clearance: f64,
     pub worst_at: f64,
     pub line_of_sight: bool,
@@ -241,7 +244,7 @@ fn deygout(
     loss
 }
 
-pub fn analyse(p: &Profile, freq_mhz: f64) -> Analysis {
+pub fn analyse(p: &Profile, freq_mhz: f64, params: &Params) -> Analysis {
     let lam = C / (freq_mhz * 1e6);
     let d = p.length();
     let (ha, hb) = (p.antenna_a(), p.antenna_b());
@@ -275,11 +278,24 @@ pub fn analyse(p: &Profile, freq_mhz: f64) -> Analysis {
     let diffraction = deygout(p, lam, 0, p.samples.len() - 1, ha, hb, 1, &mut obstacles)
         .max(smooth_earth_db(freq_mhz, d, ha - floor, hb - floor, p.k));
     obstacles.sort_by(|a, b| a.dist.total_cmp(&b.dist));
+    let ground: Vec<f64> = p.samples.iter().map(|s| s.ground).collect();
+    let step = d / (ground.len() - 1) as f64;
+    let itm = itm::point_to_point(
+        p.a.height_agl.max(0.5),
+        p.b.height_agl.max(0.5),
+        &ground,
+        step,
+        freq_mhz,
+        params,
+    );
+    let fspl = 20.0 * (4.0 * std::f64::consts::PI * d / lam).log10();
     Analysis {
+        loss_db: itm.as_ref().map(|r| r.loss_db).unwrap_or(fspl + diffraction),
+        itm,
         distance: d,
         bearing: p.a.at.bearing_to(p.b.at),
         freq_mhz,
-        fspl_db: 20.0 * (4.0 * std::f64::consts::PI * d / lam).log10(),
+        fspl_db: fspl,
         diffraction_db: diffraction,
         worst_clearance: worst,
         worst_at,
@@ -331,7 +347,7 @@ mod tests {
         let a = ep(53.0, -9.0, 10.0);
         let b = ep(53.0, -8.0, 10.0);
         let p = Profile::from_ground(a, b, 4.0 / 3.0, &vec![0.0; 401]);
-        let r = analyse(&p, 162.0);
+        let r = analyse(&p, 162.0, &Params::default());
         assert!((r.distance - 66_900.0).abs() < 500.0);
         assert!(!r.line_of_sight);
         assert!((r.diffraction_db - 54.0).abs() < 3.0, "{}", r.diffraction_db);
@@ -341,7 +357,7 @@ mod tests {
             4.0 / 3.0,
             &vec![0.0; 401],
         );
-        let rn = analyse(&near, 162.0);
+        let rn = analyse(&near, 162.0, &Params::default());
         assert!(rn.line_of_sight && !rn.fresnel_clear && rn.diffraction_db < 6.0);
     }
 
@@ -352,7 +368,7 @@ mod tests {
             g[0] = 120.0;
             g
         });
-        let r = analyse(&p, 162.0);
+        let r = analyse(&p, 162.0, &Params::default());
         assert!(r.takeoff_deg < 0.0 && r.takeoff_deg > -0.5, "{}", r.takeoff_deg);
     }
 }

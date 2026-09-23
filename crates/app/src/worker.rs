@@ -24,6 +24,10 @@ impl<T> Handle<T> {
     pub fn cancelled(&self) -> bool {
         self.cancel.load(Ordering::Relaxed)
     }
+
+    pub fn cancel_flag(&self) -> &AtomicBool {
+        &self.cancel
+    }
 }
 
 impl<T: Send + 'static> Job<T> {

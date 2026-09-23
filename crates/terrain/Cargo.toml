@@ -8,3 +8,5 @@ license.workspace = true
 tiff.workspace = true
 ureq.workspace = true
 dirs.workspace = true
+num-complex.workspace = true
+rayon.workspace = true

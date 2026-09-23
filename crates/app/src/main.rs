@@ -166,7 +166,7 @@ mod tests {
 
     #[test]
     fn scrolling_over_the_map_zooms_it_and_leaves_the_page_alone() {
-        let mut h = Harness::builder().with_size(egui::vec2(1400.0, 490.0)).build_eframe(|cc| {
+        let mut h = Harness::builder().with_size(egui::vec2(1400.0, 590.0)).build_eframe(|cc| {
             egui_bench::install(&cc.egui_ctx);
             App::new()
         });
@@ -176,7 +176,7 @@ mod tests {
         wheel(&mut h, egui::pos2(800.0, 200.0), -120.0);
         assert!(h.state().path.map_zoom() < zoom, "map did not zoom out");
         assert_eq!(h.state().page_offset, 0.0, "page scrolled under the map");
-        wheel(&mut h, egui::pos2(800.0, 474.0), -120.0);
+        wheel(&mut h, egui::pos2(800.0, 574.0), -120.0);
         assert!(
             h.state().page_offset > 0.0,
             "page does not scroll at all, so the test proves nothing"
@@ -220,6 +220,32 @@ mod tests {
             settle(&mut h, 4000);
             h.render().unwrap().save(dir.join(format!("{name}.png"))).unwrap();
         }
+    }
+
+    #[test]
+    #[ignore = "renders a coverage map to target/shots, needs the terrain tiles"]
+    fn render_coverage() {
+        let mut h =
+            Harness::builder().with_size(egui::vec2(1400.0, 1000.0)).wgpu().build_eframe(|cc| {
+                egui_bench::install(&cc.egui_ctx);
+                App::new()
+            });
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/shots");
+        std::fs::create_dir_all(&dir).unwrap();
+        h.state_mut().tab = Tab::Path;
+        h.run_steps(3);
+        let ctx = h.ctx.clone();
+        h.state_mut().path.start_coverage(&ctx);
+        for _ in 0..600 {
+            settle(&mut h, 100);
+            if h.state().path.coverage_ready() {
+                break;
+            }
+        }
+        assert!(h.state().path.coverage_ready());
+        h.hover_at(egui::pos2(700.0, 330.0));
+        settle(&mut h, 3000);
+        h.render().unwrap().save(dir.join("coverage.png")).unwrap();
     }
 
     fn resonant(centre: f64, reactance: f64) -> Vec<antenna_vna::Point> {

@@ -156,8 +156,32 @@ impl Dem {
         Ok(tile)
     }
 
+    pub fn sampler(&self, south: f64, west: f64, north: f64, east: f64) -> Result<Sampler, String> {
+        let mut tiles = HashMap::new();
+        for lat in south.floor() as i32..=north.floor() as i32 {
+            for lon in west.floor() as i32..=east.floor() as i32 {
+                let id = TileId { lat, lon: (lon + 180).rem_euclid(360) - 180 };
+                tiles.insert(id, self.tile(id)?);
+            }
+        }
+        Ok(Sampler { tiles })
+    }
+
     pub fn elevation(&self, lat: f64, lon: f64) -> Result<f64, String> {
         Ok(self.tile(TileId::containing(lat, lon))?.map(|t| t.sample(lat, lon)).unwrap_or(0.0))
+    }
+}
+
+pub struct Sampler {
+    tiles: HashMap<TileId, Option<Arc<Tile>>>,
+}
+
+impl Sampler {
+    pub fn elevation(&self, lat: f64, lon: f64) -> f64 {
+        match self.tiles.get(&TileId::containing(lat, lon)) {
+            Some(Some(t)) => t.sample(lat, lon),
+            _ => 0.0,
+        }
     }
 }
 

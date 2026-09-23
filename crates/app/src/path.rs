@@ -1,11 +1,42 @@
 use crate::charts::{self, GOLD, GREEN};
 use crate::map::MapView;
 use crate::worker::Job;
+use antenna_terrain::coverage::{self, Coverage, Spec};
+use antenna_terrain::itm::{Climate, Params};
 use antenna_terrain::path::{C, fresnel_radius};
 use antenna_terrain::{Analysis, Dem, Endpoint, LatLon, Profile, analyse, radio_horizon};
-use egui::{Align2, Color32, Pos2, Rect, Sense, Shape, Stroke, Ui, Vec2};
+use egui::{
+    Align2, Color32, ColorImage, Pos2, Rect, Sense, Shape, Stroke, TextureHandle, Ui, Vec2,
+};
 use egui_bench::prelude::*;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
+
+pub const GROUNDS: [(&str, f64, f64); 9] = [
+    ("average ground", 15.0, 0.005),
+    ("farmland, forest", 15.0, 0.005),
+    ("poor ground", 4.0, 0.001),
+    ("city", 5.0, 0.001),
+    ("mountain, sand", 13.0, 0.002),
+    ("marshy land", 12.0, 0.007),
+    ("good ground", 25.0, 0.020),
+    ("fresh water", 80.0, 0.010),
+    ("sea water", 80.0, 5.0),
+];
+
+const BANDS: [(f64, Color32); 6] = [
+    (0.0, Color32::from_rgb(0x3a, 0x5c, 0xff)),
+    (6.0, Color32::from_rgb(0x1c, 0xc8, 0xf0)),
+    (12.0, Color32::from_rgb(0x38, 0xd0, 0x58)),
+    (20.0, Color32::from_rgb(0xf0, 0xe0, 0x30)),
+    (30.0, Color32::from_rgb(0xff, 0x94, 0x20)),
+    (40.0, Color32::from_rgb(0xff, 0x38, 0x30)),
+];
+
+enum CovMsg {
+    Progress(f32),
+    Done(Result<Coverage, String>),
+}
 
 pub struct PathTab {
     pub site: (f64, f64),
@@ -19,10 +50,18 @@ pub struct PathTab {
     pub far_dbi: f64,
     pub cable_db: f64,
     pub sens_dbm: f64,
+    pub itm: Params,
+    pub radius_km: f64,
+    pub show_coverage: bool,
+    pub opacity: f32,
+    cov_job: Option<Job<CovMsg>>,
+    cov_progress: f32,
+    coverage: Option<Arc<Coverage>>,
+    overlay: Option<(String, TextureHandle)>,
     dem: Dem,
     job: Option<Job<Result<Profile, String>>>,
     profile: Option<Profile>,
-    analysis: Option<(f64, Analysis)>,
+    analysis: Option<(f64, Params, Analysis)>,
     fetched_for: String,
     pending: Option<(String, Instant)>,
     error: Option<String>,
@@ -44,6 +83,14 @@ impl Default for PathTab {
             far_dbi: 2.0,
             cable_db: 1.0,
             sens_dbm: -107.0,
+            itm: Params { climate: Climate::MaritimeTemperateOverLand, ..Params::default() },
+            radius_km: 60.0,
+            show_coverage: true,
+            opacity: 0.75,
+            cov_job: None,
+            cov_progress: 0.0,
+            coverage: None,
+            overlay: None,
             dem: Dem::default(),
             job: None,
             profile: None,
@@ -69,8 +116,88 @@ impl PathTab {
         )
     }
 
+    pub fn ground_index(&self) -> usize {
+        GROUNDS.iter().position(|g| g.1 == self.itm.epsilon && g.2 == self.itm.sigma).unwrap_or(0)
+    }
+
+    fn coverage_spec(&self) -> Spec {
+        let radius = self.radius_km * 1000.0;
+        Spec {
+            site: LatLon::new(self.site.0, self.site.1),
+            tx_agl: self.site_agl.max(0.5),
+            rx_agl: self.target_agl.max(0.5),
+            radius,
+            freq_mhz: self.freq,
+            params: self.itm,
+            radials: ((std::f64::consts::TAU * radius / 100.0).ceil() as usize).clamp(720, 4096),
+            step: 30.0,
+            stride: 2,
+        }
+    }
+
+    #[cfg(test)]
+    pub fn coverage_ready(&self) -> bool {
+        self.cov_job.is_none() && self.coverage.is_some()
+    }
+
+    pub fn start_coverage(&mut self, ctx: &egui::Context) {
+        let (dem, spec) = (self.dem.clone(), self.coverage_spec());
+        self.cov_progress = 0.0;
+        self.cov_job = Some(Job::spawn(ctx, "coverage", move |h| {
+            let res = coverage::compute(
+                &dem,
+                &spec,
+                &|f| _ = h.send(CovMsg::Progress(f)),
+                h.cancel_flag(),
+            );
+            h.send(CovMsg::Done(res));
+        }));
+    }
+
+    fn budget(&self, loss: f64) -> f64 {
+        self.tx_dbm + self.far_dbi + self.gain_dbi - self.cable_db - loss
+    }
+
+    fn overlay_key(&self) -> String {
+        format!(
+            "{}|{}|{}|{}|{}",
+            self.tx_dbm, self.far_dbi, self.gain_dbi, self.cable_db, self.sens_dbm
+        )
+    }
+
+    fn refresh_overlay(&mut self, ctx: &egui::Context) {
+        let Some(cov) = &self.coverage else {
+            self.overlay = None;
+            return;
+        };
+        let key = format!("{:p}|{}", Arc::as_ptr(cov), self.overlay_key());
+        if self.overlay.as_ref().is_some_and(|(k, _)| *k == key) {
+            return;
+        }
+        let img = overlay_image(cov, |loss| band(self.budget(loss) - self.sens_dbm));
+        let tex = ctx.load_texture("coverage", img, egui::TextureOptions::NEAREST);
+        self.overlay = Some((key, tex));
+    }
+
     pub fn poll(&mut self, ctx: &egui::Context) {
         let freq = self.freq;
+        let msgs = self.cov_job.as_mut().map(|j| j.poll()).unwrap_or_default();
+        for m in msgs {
+            match m {
+                CovMsg::Progress(f) => self.cov_progress = f,
+                CovMsg::Done(r) => {
+                    self.cov_job = None;
+                    match r {
+                        Ok(c) => {
+                            self.coverage = Some(Arc::new(c));
+                            self.show_coverage = true;
+                        }
+                        Err(e) => self.error = Some(e),
+                    }
+                }
+            }
+        }
+        self.refresh_overlay(ctx);
         self.map.poll(ctx);
         let key = self.key();
         if key != self.fetched_for && self.pending.as_ref().is_none_or(|(k, _)| *k != key) {
@@ -104,13 +231,13 @@ impl PathTab {
                 Err(e) => self.error = Some(e),
             }
         }
+        let itm = self.itm;
         if let Some(p) = &self.profile
-            && self
-                .analysis
-                .as_ref()
-                .is_none_or(|(f, a)| *f != freq || (a.distance - p.length()).abs() > 1e-6)
+            && self.analysis.as_ref().is_none_or(|(f, i, a)| {
+                *f != freq || *i != itm || (a.distance - p.length()).abs() > 1e-6
+            })
         {
-            self.analysis = Some((freq, analyse(p, freq)));
+            self.analysis = Some((freq, itm, analyse(p, freq, &itm)));
         }
     }
 
@@ -193,16 +320,16 @@ impl PathTab {
             });
             row_help(
                 ui,
-                "gain dBi",
+                "site ant dBi",
                 "Your antenna's gain toward the far end, at the takeoff angle shown below.",
                 |ui| {
                     ui.add(egui::DragValue::new(&mut self.gain_dbi).range(-30.0..=40.0).speed(0.1));
                 },
             );
-            row(ui, "far tx dBm", |ui| {
+            row(ui, "tx power dBm", |ui| {
                 ui.add(egui::DragValue::new(&mut self.tx_dbm).range(-30.0..=70.0).speed(0.5));
             });
-            row(ui, "far gain dBi", |ui| {
+            row(ui, "far ant dBi", |ui| {
                 ui.add(egui::DragValue::new(&mut self.far_dbi).range(-20.0..=40.0).speed(0.5));
             });
             row(ui, "cable dB", |ui| {
@@ -211,7 +338,115 @@ impl PathTab {
             row(ui, "rx sens dBm", |ui| {
                 ui.add(egui::DragValue::new(&mut self.sens_dbm).range(-150.0..=0.0).speed(0.5));
             });
-            hint(ui, "Defaults are an AIS class B transponder (2 W) into a typical receiver.");
+            hint(
+                ui,
+                "Loss is the same in both directions, so this holds whether the site sends or listens. Defaults are an AIS class B transponder (2 W) into a typical receiver.",
+            );
+        });
+        ui.add_space(8.0);
+        self.coverage_section(ui);
+        ui.add_space(8.0);
+        self.model_section(ui);
+    }
+
+    fn model_section(&mut self, ui: &mut Ui) {
+        section(ui, "model", "Longley-Rice ITM, as SPLAT! uses", |ui| {
+            row(ui, "climate", |ui| {
+                choice(
+                    ui,
+                    "climate",
+                    &mut self.itm.climate,
+                    Climate::ALL.map(|c| (c, c.label().to_string())),
+                );
+            });
+            row(ui, "ground", |ui| {
+                let mut g = self.ground_index();
+                if choice(
+                    ui,
+                    "ground",
+                    &mut g,
+                    GROUNDS.iter().enumerate().map(|(i, g)| (i, g.0.to_string())),
+                ) {
+                    self.itm.epsilon = GROUNDS[g].1;
+                    self.itm.sigma = GROUNDS[g].2;
+                }
+            });
+            row(ui, "polarisation", |ui| {
+                choice(
+                    ui,
+                    "polarisation",
+                    &mut self.itm.vertical,
+                    [(true, "vertical".to_string()), (false, "horizontal".to_string())],
+                );
+            });
+            row_help(
+                ui,
+                "N₀ units",
+                "Surface refractivity at sea level. 301 is the SPLAT! default; temperate coasts run about 320.",
+                |ui| {
+                    ui.add(egui::DragValue::new(&mut self.itm.n_0).range(250.0..=400.0).speed(1.0));
+                },
+            );
+            row_help(
+                ui,
+                "time %",
+                "Fraction of the time the loss is no worse than predicted. 50 is the median; 90 plans for bad days.",
+                |ui| {
+                    ui.add(egui::DragValue::new(&mut self.itm.time).range(1.0..=99.0).speed(1.0));
+                },
+            );
+            row_help(
+                ui,
+                "confidence %",
+                "How sure you want to be of the time figure, across paths that look alike.",
+                |ui| {
+                    ui.add(
+                        egui::DragValue::new(&mut self.itm.situation).range(1.0..=99.0).speed(1.0),
+                    );
+                },
+            );
+        });
+    }
+
+    fn coverage_section(&mut self, ui: &mut Ui) {
+        section(ui, "coverage", "every bearing from the site", |ui| {
+            row(ui, "radius km", |ui| {
+                ui.add(egui::DragValue::new(&mut self.radius_km).range(2.0..=250.0).speed(1.0));
+            });
+            ui.horizontal(|ui| {
+                if self.cov_job.is_some() {
+                    if ui.button(action("stop")).clicked() {
+                        self.cov_job = None;
+                    }
+                } else if ui.button(action("map coverage")).clicked() {
+                    self.start_coverage(ui.ctx());
+                }
+                if self.coverage.is_some() {
+                    if toggle(ui, "show", self.show_coverage).clicked() {
+                        self.show_coverage = !self.show_coverage;
+                    }
+                    if ui.button(action("clear")).clicked() {
+                        self.coverage = None;
+                    }
+                }
+            });
+            if self.cov_job.is_some() {
+                let said =
+                    if self.cov_progress == 0.0 { "loading terrain" } else { "tracing radials" };
+                progress(ui, "coverage", self.cov_progress, Some(1.0), said);
+            }
+            if self.coverage.is_some() {
+                row(ui, "opacity", |ui| {
+                    ui.add(egui::Slider::new(&mut self.opacity, 0.1..=1.0).show_value(false));
+                });
+            }
+            if self.coverage.as_ref().is_some_and(|c| c.spec != self.coverage_spec()) {
+                Line::new().note("the inputs changed since this map was made").size(10.5).show(ui);
+            }
+            hint(
+                ui,
+                "Signal between the site and a station at the far-end height anywhere in the circle, by Longley-Rice along every bearing. Colours are the margin over rx sensitivity; clear means not heard.",
+            );
         });
     }
 
@@ -220,11 +455,35 @@ impl PathTab {
         let site = self.site;
         let target = self.target;
         let profile = self.profile.clone();
-        let analysis = self.analysis.as_ref().map(|a| a.1.clone());
+        let analysis = self.analysis.as_ref().map(|a| a.2.clone());
         let horizon_m =
             profile.as_ref().map(|p| radio_horizon(p.antenna_a(), self.k)).unwrap_or(0.0);
         let clear = analysis.as_ref().is_some_and(|a| a.line_of_sight);
-        let drawn = self.map.show(ui, 380.0, site, |c| {
+        let overlay = self
+            .coverage
+            .as_ref()
+            .filter(|_| self.show_coverage)
+            .zip(self.overlay.as_ref())
+            .map(|(c, (_, t))| (c.spec.bounds(), c.spec.radius, t.id()));
+        let opacity = self.opacity;
+        let drawn = self.map.show(ui, 460.0, site, |c| {
+            if let Some(((s, w, n, e), radius, tex)) = overlay {
+                c.p.image(
+                    tex,
+                    Rect::from_min_max(c.at(n, w), c.at(s, e)),
+                    Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
+                    Color32::WHITE.gamma_multiply(opacity),
+                );
+                let centre = LatLon::new(site.0, site.1);
+                let ring: Vec<Pos2> = (0..=180)
+                    .map(|i| {
+                        let q = centre.destination(i as f64 * 2.0, radius);
+                        c.at(q.lat, q.lon)
+                    })
+                    .collect();
+                c.p.add(Shape::line(ring, Stroke::new(1.0, LEGEND)));
+                legend(&c.p);
+            }
             let a = c.at(site.0, site.1);
             let b = c.at(target.0, target.1);
             let colour = if clear { GREEN } else { FAULT };
@@ -266,6 +525,32 @@ impl PathTab {
         if drawn.response.secondary_clicked() {
             self.picked = drawn.pointer;
         }
+        if let (Some(cov), Some(ll), Some(pos), true) = (
+            self.coverage.as_ref().filter(|_| self.show_coverage),
+            drawn.pointer,
+            drawn.response.hover_pos(),
+            drawn.response.hovered(),
+        ) {
+            let here = LatLon::new(ll.0, ll.1);
+            let centre = LatLon::new(site.0, site.1);
+            if let Some(loss) = cov.loss_at(here) {
+                let rx = self.budget(loss as f64);
+                let text = format!(
+                    "{:.1} km · {:.0}° · loss {:.1} dB · {:.1} dBm ({:+.1} dB)",
+                    centre.distance_to(here) / 1000.0,
+                    centre.bearing_to(here),
+                    loss,
+                    rx,
+                    rx - self.sens_dbm
+                );
+                let p = ui.painter_at(drawn.response.rect);
+                let g = p.layout_no_wrap(text, theme::figure(10.5), VALUE);
+                let at = pos + Vec2::new(14.0, 14.0);
+                let plate = Rect::from_min_size(at, g.size() + Vec2::new(12.0, 6.0));
+                p.rect_filled(plate, 3.0, Color32::from_black_alpha(215));
+                p.galley(at + Vec2::new(6.0, 3.0), g, VALUE);
+            }
+        }
         let picked = self.picked;
         drawn.response.context_menu(|ui| {
             if let Some(ll) = picked {
@@ -281,7 +566,7 @@ impl PathTab {
             }
         });
         Line::new()
-            .note("The dashed ring is the radio horizon to sea level from the antenna.")
+            .note("The dashed ring is the radio horizon to sea level from the antenna. Hover the coverage for the level at any point.")
             .size(10.5)
             .show(ui);
         ui.add_space(8.0);
@@ -311,8 +596,7 @@ impl PathTab {
         );
         ui.add_space(8.0);
 
-        let g = self.gain_dbi;
-        let loss = an.fspl_db + an.diffraction_db;
+        let loss = an.loss_db;
         card(
             ui,
             Some(if an.line_of_sight { OK } else { FAULT }),
@@ -329,7 +613,7 @@ impl PathTab {
                     hero(ui, "path loss", &format!("{loss:.1}"), "dB", TRACE);
                     ui.add_space(16.0);
                     {
-                        let rx = self.tx_dbm + self.far_dbi + g - self.cable_db - loss;
+                        let rx = self.budget(loss);
                         hero(
                             ui,
                             "received",
@@ -365,7 +649,11 @@ impl PathTab {
                         if an.fresnel_clear { OK } else { WARN },
                     ),
                     ("free space", format!("{:.1} dB", an.fspl_db), TRACE),
-                    ("diffraction", format!("{:.1} dB", an.diffraction_db), TRACE),
+                    ("beyond free space", format!("{:.1} dB", loss - an.fspl_db), TRACE),
+                    match &an.itm {
+                        Ok(r) => ("mode", r.mode.label().to_string(), TRACE),
+                        Err(e) => ("model", e.to_string(), FAULT),
+                    },
                     ("takeoff", format!("{:+.2}°", an.takeoff_deg), TRACE),
                     ("horizon", format!("{:.1} km", horizon_m / 1000.0), TRACE),
                     ("site ground", format!("{:.0} m", p.samples[0].ground), TRACE),
@@ -509,5 +797,59 @@ fn profile_plot(ui: &mut Ui, p: &Profile, an: &Analysis, freq: f64) {
                 VALUE,
             );
         }
+    }
+}
+
+fn band(margin: f64) -> Option<Color32> {
+    BANDS.iter().rev().find(|(lo, _)| margin >= *lo).map(|(_, c)| *c)
+}
+
+fn overlay_image(cov: &Coverage, colour: impl Fn(f64) -> Option<Color32>) -> ColorImage {
+    use crate::map::{project, unproject};
+    let (s, w, n, e) = cov.spec.bounds();
+    let (x0, y0) = project(n, w, 0);
+    let (x1, y1) = project(s, e, 0);
+    let size = 900;
+    let mut pixels = vec![Color32::TRANSPARENT; size * size];
+    for (py, row) in pixels.chunks_mut(size).enumerate() {
+        let y = y0 + (y1 - y0) * (py as f64 + 0.5) / size as f64;
+        for (px, out) in row.iter_mut().enumerate() {
+            let x = x0 + (x1 - x0) * (px as f64 + 0.5) / size as f64;
+            let (lat, lon) = unproject(x, y, 0);
+            if let Some(c) = cov.loss_at(LatLon::new(lat, lon)).and_then(|l| colour(l as f64)) {
+                *out = c.gamma_multiply(0.8);
+            }
+        }
+    }
+    ColorImage::new([size, size], pixels)
+}
+
+fn legend(p: &egui::Painter) {
+    let rect = p.clip_rect();
+    let font = theme::legend_font(10.0);
+    let (w, h) = (34.0, 12.0);
+    let origin = Pos2::new(rect.left() + 10.0, rect.bottom() - 30.0);
+    let plate = Rect::from_min_size(
+        origin - Vec2::new(6.0, 20.0),
+        Vec2::new(w * BANDS.len() as f32 + 12.0, 44.0),
+    );
+    p.rect_filled(plate, 3.0, Color32::from_black_alpha(205));
+    p.text(
+        origin - Vec2::new(0.0, 16.0),
+        Align2::LEFT_TOP,
+        "margin over rx sensitivity, dB",
+        font.clone(),
+        LEGEND,
+    );
+    for (i, (lo, c)) in BANDS.iter().enumerate() {
+        let r = Rect::from_min_size(origin + Vec2::new(i as f32 * w, 0.0), Vec2::new(w - 2.0, h));
+        p.rect_filled(r, 1.0, *c);
+        p.text(
+            r.left_bottom() + Vec2::new(0.0, 1.0),
+            Align2::LEFT_TOP,
+            format!("{lo:+.0}"),
+            font.clone(),
+            VALUE,
+        );
     }
 }

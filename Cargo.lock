@@ -198,6 +198,8 @@ name = "antenna-terrain"
 version = "0.1.0"
 dependencies = [
  "dirs",
+ "num-complex",
+ "rayon",
  "tiff",
  "ureq",
 ]
