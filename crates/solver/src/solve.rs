@@ -130,7 +130,9 @@ pub fn solve_at(model: &Model, lam: f64, want_pattern: bool) -> SolveResult {
         result.dbi = Some(d_dbi);
         result.peak = peak;
         if model.po.is_none() {
-            let p_in = 0.5 * i.re;
+            let p_in = 0.5
+                * (i.re
+                    + model.sources.iter().map(|&(b, v)| (v * coeffs[b].conj()).re).sum::<f64>());
             if p_in > 0.0 {
                 let eff = (radiated_power(&*pattern, k) / p_in).min(1.0);
                 result.efficiency = Some(eff);

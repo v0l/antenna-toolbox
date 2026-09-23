@@ -1,4 +1,5 @@
-use crate::geometry::{Insulation, RealGround, SolveLine, WireGeometry, WireProps};
+use crate::C64;
+use crate::geometry::{Insulation, Load, RealGround, SolveLine, WireGeometry, WireProps};
 use crate::mom::segmentise;
 use crate::vec::{Vec3, add, length, lerp, scale, sub};
 use std::fmt::Write;
@@ -56,8 +57,18 @@ pub fn export(
     let dz = geo.ground_z.unwrap_or(0.0);
     let shift = |p: Vec3| [p[0], p[1], p[2] - dz];
 
+    #[derive(Clone, Copy)]
+    enum Port {
+        Feed,
+        Source(C64),
+        Load(Load),
+    }
+    let mut ports: Vec<(Vec3, Port)> = vec![(geo.feed, Port::Feed)];
+    ports.extend(geo.sources.iter().map(|&(p, v)| (p, Port::Source(v))));
+    ports.extend(geo.loads.iter().map(|&(p, l)| (p, Port::Load(l))));
+    let mut placed = vec![false; ports.len()];
     let mut wires: Vec<Wire> = Vec::new();
-    let mut feed_at: Option<(usize, usize)> = None;
+    let mut tagged: Vec<(usize, Port)> = Vec::new();
     for line in &geo.lines {
         for pair in line.pts.windows(2) {
             let (a, b) = (pair[0], pair[1]);
@@ -67,32 +78,46 @@ pub fn export(
             }
             let radius = line.rad.unwrap_or(wire_radius);
             let n = line.segments.unwrap_or(((l / target).round() as usize).max(1)).max(1);
-            match on_edge(a, b, geo.feed).filter(|_| feed_at.is_none()) {
-                Some(t) => {
-                    let seg = l / n as f64;
-                    let half = (seg / 2.0).min(l / 2.0);
-                    let dir = scale(sub(b, a), 1.0 / l);
-                    let centre = lerp(a, b, t.clamp(half / l, 1.0 - half / l));
-                    let f0 = sub(centre, scale(dir, half));
-                    let f1 = add(centre, scale(dir, half));
-                    let before = length(sub(f0, a));
-                    let after = length(sub(b, f1));
-                    if before > 1e-9 {
-                        let n = ((before / seg).round() as usize).max(1);
-                        wires.push(Wire { a, b: f0, segments: n, radius, props: line.props });
-                    }
-                    feed_at = Some((wires.len() + 1, 1));
-                    wires.push(Wire { a: f0, b: f1, segments: 1, radius, props: line.props });
-                    if after > 1e-9 {
-                        let n = ((after / seg).round() as usize).max(1);
-                        wires.push(Wire { a: f1, b, segments: n, radius, props: line.props });
-                    }
+            let seg = l / n as f64;
+            let half = (seg / 2.0).min(l / 2.0);
+            let dir = scale(sub(b, a), 1.0 / l);
+            let mut here: Vec<(f64, usize)> = ports
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| !placed[*i])
+                .filter_map(|(i, (p, _))| {
+                    on_edge(a, b, *p).map(|t| (t.clamp(half / l, 1.0 - half / l), i))
+                })
+                .collect();
+            here.sort_by(|x, y| x.0.total_cmp(&y.0));
+            let mut start = a;
+            for (t, i) in here {
+                let centre = lerp(a, b, t);
+                let f0 = sub(centre, scale(dir, half));
+                let f1 = add(centre, scale(dir, half));
+                if crate::vec::dot(sub(f0, start), dir) < -1e-9 {
+                    continue;
                 }
-                None => wires.push(Wire { a, b, segments: n, radius, props: line.props }),
+                placed[i] = true;
+                let before = length(sub(f0, start));
+                if before > 1e-9 {
+                    let n = ((before / seg).round() as usize).max(1);
+                    wires.push(Wire { a: start, b: f0, segments: n, radius, props: line.props });
+                }
+                tagged.push((wires.len() + 1, ports[i].1));
+                wires.push(Wire { a: f0, b: f1, segments: 1, radius, props: line.props });
+                start = f1;
+            }
+            let rest = length(sub(b, start));
+            if rest > 1e-9 {
+                let n = ((rest / seg).round() as usize).max(1);
+                wires.push(Wire { a: start, b, segments: n, radius, props: line.props });
             }
         }
     }
-    let (tag, seg) = feed_at.ok_or(ExportError::FeedOffWire)?;
+    if !placed[0] {
+        return Err(ExportError::FeedOffWire);
+    }
 
     let mut o = String::new();
     let _ = writeln!(o, "CM {title}");
@@ -133,7 +158,25 @@ pub fn export(
             let _ = writeln!(o, "LD 5 {} 0 0 {sigma:e}", i + 1);
         }
     }
-    let _ = writeln!(o, "EX 0 {tag} {seg} 0 1 0");
+    for (tag, port) in &tagged {
+        match port {
+            Port::Feed => {
+                let _ = writeln!(o, "EX 0 {tag} 1 0 1 0");
+            }
+            Port::Source(v) => {
+                let _ = writeln!(o, "EX 0 {tag} 1 0 {} {}", v.re, v.im);
+            }
+            Port::Load(Load::Series { r, l, c }) => {
+                let _ = writeln!(o, "LD 0 {tag} 1 1 {r:e} {l:e} {c:e}");
+            }
+            Port::Load(Load::Parallel { r, l, c }) => {
+                let _ = writeln!(o, "LD 1 {tag} 1 1 {r:e} {l:e} {c:e}");
+            }
+            Port::Load(Load::Impedance { r, x }) => {
+                let _ = writeln!(o, "LD 4 {tag} 1 1 {r:e} {x:e}");
+            }
+        }
+    }
     let _ = writeln!(o, "FR 0 1 0 0 {freq_mhz} 0");
     let _ = writeln!(o, "RP 0 37 73 1000 0 0 5 5");
     let _ = writeln!(o, "EN");
@@ -153,6 +196,7 @@ struct Raw {
     tag: i64,
     pts: Vec<Vec3>,
     radius: f64,
+    taper: Option<(f64, f64)>,
     props: WireProps,
 }
 
@@ -175,7 +219,8 @@ fn rotate(p: Vec3, rx: f64, ry: f64, rz: f64) -> Vec3 {
 pub fn import(deck: &str) -> Result<Imported, String> {
     let mut wires: Vec<Raw> = Vec::new();
     let mut out = Imported::default();
-    let mut feed: Option<(i64, usize)> = None;
+    let mut sources: Vec<(i64, usize, C64)> = Vec::new();
+    let mut loads: Vec<(i64, i64, usize, usize, [f64; 3])> = Vec::new();
     let mut ground: Option<Option<RealGround>> = None;
     let mut scale_m = 1.0;
     for (ln, raw) in deck.lines().enumerate() {
@@ -193,13 +238,13 @@ pub fn import(deck: &str) -> Result<Imported, String> {
                 let (tag, ns) = (get(0) as i64, get(1).max(1.0) as usize);
                 let (a, b) = ([get(2), get(3), get(4)], [get(5), get(6), get(7)]);
                 let pts = (0..=ns).map(|i| lerp(a, b, i as f64 / ns as f64)).collect();
-                if get(8) == 0.0 {
-                    out.warnings.push(format!(
-                        "line {}: tapered wire (GC) read with the default radius",
-                        ln + 1
-                    ));
-                }
-                wires.push(Raw { tag, pts, radius: get(8), props: WireProps::default() });
+                wires.push(Raw {
+                    tag,
+                    pts,
+                    radius: get(8),
+                    taper: None,
+                    props: WireProps::default(),
+                });
             }
             "GA" => {
                 let (tag, ns) = (get(0) as i64, get(1).max(1.0) as usize);
@@ -210,7 +255,13 @@ pub fn import(deck: &str) -> Result<Imported, String> {
                         [r * a.cos(), 0.0, r * a.sin()]
                     })
                     .collect();
-                wires.push(Raw { tag, pts, radius: get(5), props: WireProps::default() });
+                wires.push(Raw {
+                    tag,
+                    pts,
+                    radius: get(5),
+                    taper: None,
+                    props: WireProps::default(),
+                });
             }
             "GH" => {
                 let (tag, ns) = (get(0) as i64, get(1).max(1.0) as usize);
@@ -226,7 +277,13 @@ pub fn import(deck: &str) -> Result<Imported, String> {
                         [ax * ang.cos(), by * ang.sin(), len.abs() * f]
                     })
                     .collect();
-                wires.push(Raw { tag, pts, radius: get(8), props: WireProps::default() });
+                wires.push(Raw {
+                    tag,
+                    pts,
+                    radius: get(8),
+                    taper: None,
+                    props: WireProps::default(),
+                });
             }
             "GM" => {
                 let (inc, copies) = (get(0) as i64, get(1) as usize);
@@ -312,11 +369,9 @@ pub fn import(deck: &str) -> Result<Imported, String> {
                         ln + 1
                     ));
                 }
-                if feed.is_none() {
-                    feed = Some((get(1) as i64, get(2).max(1.0) as usize));
-                } else {
-                    out.warnings.push("more than one source: only the first is driven".into());
-                }
+                let v = C64::new(get(4), get(5));
+                let v = if v.norm() == 0.0 { C64::new(1.0, 0.0) } else { v };
+                sources.push((get(1) as i64, get(2).max(1.0) as usize, v));
             }
             "LD" => match get(0) as i64 {
                 5 => {
@@ -325,7 +380,14 @@ pub fn import(deck: &str) -> Result<Imported, String> {
                         w.props.conductivity = Some(sigma);
                     }
                 }
-                -1 => {}
+                -1 => loads.clear(),
+                t @ (0 | 1 | 4) => loads.push((
+                    t,
+                    get(1) as i64,
+                    get(2) as usize,
+                    get(3) as usize,
+                    [get(4), get(5), get(6)],
+                )),
                 t => out.warnings.push(format!("line {}: load type {t} ignored", ln + 1)),
             },
             "IS" => {
@@ -341,28 +403,74 @@ pub fn import(deck: &str) -> Result<Imported, String> {
                 }
             }
             "EN" => break,
-            "RP" | "XQ" | "NE" | "NH" | "PQ" | "PT" | "KH" | "NX" | "EK" | "GC" | "GF" | "WG" => {}
+            "GC" => {
+                if let Some(w) = wires.last_mut() {
+                    w.taper = Some((get(3), get(4)));
+                    if w.radius == 0.0 {
+                        w.radius = (get(3) + get(4)) / 2.0;
+                    }
+                }
+            }
+            "RP" | "XQ" | "NE" | "NH" | "PQ" | "PT" | "KH" | "NX" | "EK" | "GF" | "WG" => {}
             other => out.warnings.push(format!("line {}: card {other} ignored", ln + 1)),
         }
     }
     let mm = |p: Vec3| scale(p, 1000.0 * scale_m);
-    let (tag, seg) = feed.ok_or("no EX card: nothing is driven")?;
-    let fed = wires
-        .iter()
-        .filter(|w| w.tag == tag)
-        .flat_map(|w| w.pts.windows(2).map(|p| lerp(p[0], p[1], 0.5)))
-        .nth(seg - 1)
-        .ok_or_else(|| format!("EX refers to segment {seg} of tag {tag}, which does not exist"))?;
+    let centre = |tag: i64, seg: usize| -> Result<Vec3, String> {
+        wires
+            .iter()
+            .filter(|w| w.tag == tag)
+            .flat_map(|w| w.pts.windows(2).map(|p| lerp(p[0], p[1], 0.5)))
+            .nth(seg.max(1) - 1)
+            .map(mm)
+            .ok_or_else(|| format!("segment {seg} of tag {tag} does not exist"))
+    };
+    let (&(tag, seg, v0), rest) = sources.split_first().ok_or("no EX card: nothing is driven")?;
+    let fed = centre(tag, seg)?;
+    for &(t, s, v) in rest {
+        out.geo.sources.push((centre(t, s)?, v / v0));
+    }
+    for &(kind, tag, s1, s2, [a, b, c]) in &loads {
+        let load = match kind {
+            0 => Load::Series { r: a, l: b, c },
+            1 => Load::Parallel { r: a, l: b, c },
+            _ => Load::Impedance { r: a, x: b },
+        };
+        for w in wires.iter().filter(|w| tag == 0 || w.tag == tag) {
+            let n = w.pts.len() - 1;
+            let (lo, hi) =
+                if s1 == 0 { (1, n) } else { (s1, if s2 == 0 { s1 } else { s2 }.min(n)) };
+            for s in lo..=hi {
+                out.geo.loads.push((mm(lerp(w.pts[s - 1], w.pts[s], 0.5)), load));
+            }
+        }
+    }
     out.geo.lines = wires
         .iter()
-        .map(|w| SolveLine {
-            pts: w.pts.iter().map(|&p| mm(p)).collect(),
-            rad: Some(w.radius * 1000.0 * scale_m),
-            props: w.props,
-            segments: Some(1),
+        .flat_map(|w| {
+            let n = w.pts.len() - 1;
+            let lines: Vec<SolveLine> = match w.taper {
+                Some((r1, r2)) => (0..n)
+                    .map(|i| SolveLine {
+                        pts: vec![mm(w.pts[i]), mm(w.pts[i + 1])],
+                        rad: Some(
+                            (r1 + (r2 - r1) * (i as f64 + 0.5) / n as f64) * 1000.0 * scale_m,
+                        ),
+                        props: w.props,
+                        segments: Some(1),
+                    })
+                    .collect(),
+                None => vec![SolveLine {
+                    pts: w.pts.iter().map(|&p| mm(p)).collect(),
+                    rad: Some(w.radius * 1000.0 * scale_m),
+                    props: w.props,
+                    segments: Some(1),
+                }],
+            };
+            lines
         })
         .collect();
-    out.geo.feed = mm(fed);
+    out.geo.feed = fed;
     if let Some(real) = ground {
         out.geo.ground_z = Some(0.0);
         out.geo.real_ground = real;

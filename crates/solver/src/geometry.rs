@@ -63,10 +63,46 @@ impl RealGround {
 
 pub type Blocked = Arc<dyn Fn(Vec3) -> bool + Send + Sync>;
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Load {
+    Series { r: f64, l: f64, c: f64 },
+    Parallel { r: f64, l: f64, c: f64 },
+    Impedance { r: f64, x: f64 },
+}
+
+impl Load {
+    pub fn impedance(self, freq_hz: f64) -> crate::C64 {
+        use crate::C64;
+        let w = 2.0 * std::f64::consts::PI * freq_hz;
+        match self {
+            Load::Impedance { r, x } => C64::new(r, x),
+            Load::Series { r, l, c } => {
+                let xc = if c > 0.0 { -1.0 / (w * c) } else { 0.0 };
+                C64::new(r, w * l + xc)
+            }
+            Load::Parallel { r, l, c } => {
+                let mut y = C64::new(0.0, 0.0);
+                if r > 0.0 {
+                    y += 1.0 / r;
+                }
+                if l > 0.0 {
+                    y += C64::new(0.0, -1.0 / (w * l));
+                }
+                if c > 0.0 {
+                    y += C64::new(0.0, w * c);
+                }
+                if y.norm() > 0.0 { y.inv() } else { C64::new(1e12, 0.0) }
+            }
+        }
+    }
+}
+
 #[derive(Clone, Default)]
 pub struct WireGeometry {
     pub lines: Vec<SolveLine>,
     pub feed: Vec3,
+    pub sources: Vec<(Vec3, crate::C64)>,
+    pub loads: Vec<(Vec3, Load)>,
     pub ground_z: Option<f64>,
     pub real_ground: Option<RealGround>,
     pub mirrors: Vec<ImagePlane>,

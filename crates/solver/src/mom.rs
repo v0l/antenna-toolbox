@@ -45,6 +45,8 @@ pub struct Model {
     pub a: f64,
     pub feed: usize,
     pub feed_point: Vec3,
+    pub sources: Vec<(usize, C64)>,
+    pub loads: Vec<(usize, crate::geometry::Load)>,
     pub max_degree: usize,
     pub ground_z: Option<f64>,
     pub real_ground: Option<RealGround>,
@@ -53,28 +55,35 @@ pub struct Model {
     pub po: Option<Mesh>,
 }
 
-fn split_at_feed(lines: &[SolveLine], feed: Vec3) -> Vec<SolveLine> {
+fn split_at(lines: &[SolveLine], ports: &[Vec3]) -> Vec<SolveLine> {
     lines
         .iter()
         .map(|spec| {
-            let mut pts = Vec::with_capacity(spec.pts.len() + 1);
+            let mut pts = Vec::with_capacity(spec.pts.len() + ports.len());
             for (i, &p) in spec.pts.iter().enumerate() {
                 if i > 0 {
                     let a = spec.pts[i - 1];
                     let ab = sub(p, a);
                     let l = length(ab);
                     if l > 0.0 {
-                        let t = dot(sub(feed, a), ab) / (l * l);
-                        let off = length(sub(feed, lerp(a, p, t)));
                         let tol = 1e-6 * l;
-                        if off < tol && t * l > tol && (1.0 - t) * l > tol {
-                            pts.push(feed);
-                        }
+                        let mut inside: Vec<(f64, Vec3)> = ports
+                            .iter()
+                            .filter_map(|&q| {
+                                let t = dot(sub(q, a), ab) / (l * l);
+                                let off = length(sub(q, lerp(a, p, t)));
+                                (off < tol && t * l > tol && (1.0 - t) * l > tol).then_some((t, q))
+                            })
+                            .collect();
+                        inside.sort_by(|x, y| x.0.total_cmp(&y.0));
+                        inside.dedup_by(|x, y| (x.0 - y.0).abs() * l < tol);
+                        pts.extend(inside.into_iter().map(|(_, q)| q));
                     }
                 }
                 pts.push(p);
             }
-            SolveLine { pts, ..spec.clone() }
+            let segments = spec.segments.filter(|_| pts.len() == spec.pts.len());
+            SolveLine { pts, segments, ..spec.clone() }
         })
         .collect()
 }
@@ -159,7 +168,10 @@ pub fn bases_for(segs: &[Segment], planes: &[ImagePlane]) -> (Vec<Basis>, usize)
 }
 
 pub fn build_model(geo: &WireGeometry, lam: f64, wire_dia: f64, cap: usize) -> Model {
-    let lines = split_at_feed(&geo.lines, geo.feed);
+    let mut ports = vec![geo.feed];
+    ports.extend(geo.sources.iter().map(|s| s.0));
+    ports.extend(geo.loads.iter().map(|l| l.0));
+    let lines = split_at(&geo.lines, &ports);
     let segs = segmentise(&lines, lam, cap);
     let min_len = segs.iter().map(|s| s.len).fold(f64::INFINITY, f64::min);
     let a = (wire_dia / 2.0).min(0.3 * min_len).max(1e-4 * lam);
@@ -168,12 +180,17 @@ pub fn build_model(geo: &WireGeometry, lam: f64, wire_dia: f64, cap: usize) -> M
         planes.push(ImagePlane { axis: 2, at: gz });
     }
     let (bases, max_degree) = bases_for(&segs, &planes);
-    let feed = bases
-        .iter()
-        .enumerate()
-        .min_by(|x, y| length(sub(x.1.node, geo.feed)).total_cmp(&length(sub(y.1.node, geo.feed))))
-        .map(|(i, _)| i)
-        .unwrap_or(0);
+    let nearest = |p: Vec3| {
+        bases
+            .iter()
+            .enumerate()
+            .min_by(|x, y| length(sub(x.1.node, p)).total_cmp(&length(sub(y.1.node, p))))
+            .map(|(i, _)| i)
+            .unwrap_or(0)
+    };
+    let feed = nearest(geo.feed);
+    let sources = geo.sources.iter().map(|&(p, v)| (nearest(p), v)).collect();
+    let loads = geo.loads.iter().map(|&(p, l)| (nearest(p), l)).collect();
 
     let mut images = Vec::new();
     if let Some(gz) = geo.ground_z {
@@ -185,6 +202,8 @@ pub fn build_model(geo: &WireGeometry, lam: f64, wire_dia: f64, cap: usize) -> M
 
     Model {
         feed_point: bases.get(feed).map(|b| b.node).unwrap_or(geo.feed),
+        sources,
+        loads,
         segs,
         bases,
         a,
@@ -511,6 +530,14 @@ pub fn solve_cpu(model: &Model, k: f64) -> Currents {
     let mut sys = fill(model, k);
     if !model.bases.is_empty() {
         *sys.rhs_mut(model.feed) = C64::new(1.0, 0.0);
+        for &(b, v) in &model.sources {
+            *sys.rhs_mut(b) += v;
+        }
+        let freq_hz = k * 1000.0 * 299_792_458.0 / (2.0 * PI);
+        for &(b, load) in &model.loads {
+            let w = sys.w;
+            sys.a[b * w + b] += load.impedance(freq_hz);
+        }
     }
     solve_system(sys)
 }

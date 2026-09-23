@@ -106,3 +106,31 @@ fn insulated_dipole_matches_the_nec4_is_card() {
     assert!((bare - 2416.0).abs() < 8.0, "bare {bare}");
     assert!((sheathed - 2302.0).abs() < 8.0, "sheathed {sheathed}");
 }
+
+#[test]
+fn a_lumped_load_adds_in_series_at_the_feed() {
+    let deck = "GW 1 7 0 0 -.25 0 0 .25 .001\nGE\nFR 0 1 0 0 299.8 0\nEX 0 1 4 0 1.\n";
+    let solve = |text: &str| {
+        let r = antenna_solver::nec::import(text).unwrap();
+        let lam = 299_792.458 / r.freq_mhz.unwrap();
+        solve_at(&model_for(&r.geo, lam, 2.0, 900), lam, false).z
+    };
+    let bare = solve(&format!("{deck}EN\n"));
+    let loaded = solve(&format!("{deck}LD 0 1 4 4 10. 3.000E-09 5.300E-11\nEN\n"));
+    let d = loaded - bare;
+    assert!((d.re - 10.0).abs() < 0.05 && (d.im + 4.36).abs() < 0.05, "{d}");
+}
+
+#[test]
+fn a_second_source_drives_a_phased_pair() {
+    let deck = "GW 1 21 0 -0.24 0 0 0.24 0 0.001\nGW 2 21 0.25 -0.24 0 0.25 0.24 0 0.001\nGE\nFR 0 1 0 0 299.8 0\nEX 0 1 11 0 1 0\nEX 0 2 11 0 0 -1\nEN\n";
+    let r = antenna_solver::nec::import(deck).unwrap();
+    assert_eq!(r.geo.sources.len(), 1);
+    assert_eq!(r.geo.sources[0].1, C64::new(0.0, -1.0));
+    let lam = 299_792.458 / 299.8;
+    let res = solve_at(&model_for(&r.geo, lam, 2.0, 900), lam, true);
+    let fwd = res.gain_dbi([1.0, 0.0, 0.0]).unwrap();
+    let back = res.gain_dbi([-1.0, 0.0, 0.0]).unwrap();
+    assert!((fwd - 5.48).abs() < 0.2 && (back - 1.95).abs() < 0.2, "nec2 5.48 / 1.95, ours {fwd} / {back}");
+    assert!((res.z - C64::new(52.06, 14.13)).norm() < 3.0, "nec2 52.06+14.13j, ours {}", res.z);
+}
