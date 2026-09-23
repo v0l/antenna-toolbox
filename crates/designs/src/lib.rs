@@ -4,6 +4,7 @@ pub mod export;
 pub mod feed_detail;
 pub mod feeds;
 pub mod matching;
+pub mod sketch;
 
 use antenna_solver::geometry::{Geometry, Mesh};
 use antenna_solver::vec::Vec3;
@@ -34,6 +35,16 @@ pub enum ControlId {
     SpiralTurns,
     FeedGap,
     Mouth,
+    Elements,
+    Driven,
+    Boom,
+    BoomDia,
+    Height,
+    LoopFeed,
+    Reflector,
+    Tau,
+    Span,
+    ApexAngle,
 }
 
 pub struct ControlDef {
@@ -58,7 +69,7 @@ const fn ctl(
 }
 
 impl ControlId {
-    pub const ALL: [ControlId; 18] = [
+    pub const ALL: [ControlId; 28] = [
         ControlId::Spacing,
         ControlId::Turns,
         ControlId::Droop,
@@ -77,6 +88,16 @@ impl ControlId {
         ControlId::SpiralTurns,
         ControlId::FeedGap,
         ControlId::Mouth,
+        ControlId::Elements,
+        ControlId::Driven,
+        ControlId::Boom,
+        ControlId::BoomDia,
+        ControlId::Height,
+        ControlId::LoopFeed,
+        ControlId::Reflector,
+        ControlId::Tau,
+        ControlId::Span,
+        ControlId::ApexAngle,
     ];
 
     pub fn def(self) -> ControlDef {
@@ -109,6 +130,28 @@ impl ControlId {
             SpiralTurns => ctl("Spiral turns per arm", 2.0, 1.5, 4.0, 0.5, false),
             FeedGap => ctl("Feed gap (% of disc radius)", 6.0, 1.0, 20.0, 1.0, false),
             Mouth => ctl("Mouth opening (λ)", 0.5, 0.25, 1.2, 0.05, false),
+            Elements => ctl("Number of elements", 6.0, 2.0, 30.0, 1.0, true),
+            Driven => ControlDef {
+                options: &["Straight dipole", "Folded dipole"],
+                ..ctl("Driven element", 0.0, 0.0, 1.0, 1.0, true)
+            },
+            Boom => ControlDef {
+                options: &["Non-metal", "Metal, elements bonded", "Metal, elements insulated"],
+                ..ctl("Boom", 0.0, 0.0, 2.0, 1.0, true)
+            },
+            BoomDia => ctl("Boom diameter (mm)", 20.0, 5.0, 80.0, 1.0, false),
+            Height => ctl("Apex height above ground (λ)", 0.5, 0.15, 1.5, 0.05, false),
+            ApexAngle => ctl("Included angle at the apex", 100.0, 60.0, 180.0, 5.0, false),
+            LoopFeed => ControlDef {
+                options: &["Bottom centre, horizontal", "Side, vertical"],
+                ..ctl("Feed point", 0.0, 0.0, 1.0, 1.0, true)
+            },
+            Reflector => ControlDef {
+                options: &["None", "Crossed reflector below"],
+                ..ctl("Reflector", 0.0, 0.0, 1.0, 1.0, true)
+            },
+            Tau => ctl("τ, element length ratio", 0.9, 0.8, 0.96, 0.01, false),
+            Span => ctl("Band, highest over lowest frequency", 1.5, 1.2, 4.0, 0.1, false),
         }
     }
 

@@ -1161,6 +1161,16 @@ fn short(id: ControlId) -> &'static str {
         SpiralTurns => "turns",
         FeedGap => "gap %",
         Mouth => "mouth λ",
+        Elements => "elements",
+        Driven => "driven",
+        Boom => "boom",
+        BoomDia => "boom ⌀ mm",
+        Height => "apex λ",
+        LoopFeed => "feed",
+        Reflector => "reflector",
+        Tau => "τ",
+        Span => "band ratio",
+        ApexAngle => "apex °",
     }
 }
 

@@ -1,6 +1,17 @@
 use antenna_solver::C64;
 
-const UNBALANCED: [&str; 5] = ["gp", "discone", "discmono", "coil", "helix"];
+const UNBALANCED: [&str; 10] = [
+    "gp",
+    "discone",
+    "discmono",
+    "coil",
+    "helix",
+    "monopole",
+    "fiveeighths",
+    "jpole",
+    "sleeve",
+    "qfh",
+];
 
 pub fn is_balanced(id: &str) -> bool {
     !UNBALANCED.contains(&id)

@@ -36,7 +36,7 @@ fn main() {
     let params: Vec<String> =
         comp.params.iter().map(|p| format!("{}={:.4}", p.name, p.val / lam)).collect();
     println!(
-        "Z {:.1}{:+.1}j SWR {:.2} | {:.2} dBi fwd {:.2} F/B {:.1} AR {:.1} | tune {} | {}",
+        "Z {:.1}{:+.1}j SWR {:.2} | {:.2} dBi fwd {:.2} F/B {:.1} AR {:.1} {} | tune {} | {}",
         r.z.re,
         r.z.im,
         swr_of(r.z, 50.0),
@@ -44,6 +44,7 @@ fn main() {
         r.gain_dbi(b).unwrap_or(0.0),
         fb,
         r.pol.map(|p| p.ar_db).unwrap_or(99.0),
+        r.pol.map(|p| p.hand.label()).unwrap_or(""),
         t.map(|t| format!("x{:.3} Z {:.0}{:+.0}j", t.scale, t.z.re, t.z.im)).unwrap_or("-".into()),
         params.join(" ")
     );

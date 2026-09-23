@@ -106,11 +106,17 @@ struct Camera {
     focal: f64,
     origin: Pos2,
     centre: Vec3,
+    z_up: bool,
 }
 
 impl Camera {
+    fn upright(&self, p: Vec3) -> Vec3 {
+        if self.z_up { [p[0], p[2], -p[1]] } else { p }
+    }
+
     fn project(&self, p: Vec3) -> (Pos2, f64) {
-        let (x, y, z) = (p[0] - self.centre[0], p[1] - self.centre[1], p[2] - self.centre[2]);
+        let (p, c) = (self.upright(p), self.upright(self.centre));
+        let (x, y, z) = (p[0] - c[0], p[1] - c[1], p[2] - c[2]);
         let x1 = x * self.cy + z * self.sy;
         let z1 = -x * self.sy + z * self.cy;
         let y2 = y * self.cp - z1 * self.sp;
@@ -196,6 +202,7 @@ pub fn show(
         focal: f64::from(rect.width().min(rect.height())) * 4.0 * view.zoom as f64,
         origin: rect.center() + view.pan,
         centre: bounds.centre,
+        z_up: scene.up()[2] > 0.5,
     };
     let show = if mesh.is_some() { view.show } else { Show::Wire };
     let mut items = Vec::new();
@@ -298,13 +305,18 @@ pub fn show(
         p.text(q + Vec2::new(9.0, 0.0), Align2::LEFT_CENTER, "SMA", label_font.clone(), green);
     }
     if scene.omni {
-        let y = scene.omni_y.unwrap_or(bounds.centre[1]);
         let rr = bounds.radius * 1.15;
-        let pts: Vec<Pos2> =
-            ring(64, |a| [bounds.centre[0] + rr * a.cos(), y, bounds.centre[2] + rr * a.sin()])
-                .into_iter()
-                .map(|q| cam.project(q).0)
-                .collect();
+        let c = bounds.centre;
+        let pts: Vec<Pos2> = ring(64, |a| {
+            if cam.z_up {
+                [c[0] + rr * a.cos(), c[1] + rr * a.sin(), scene.omni_y.unwrap_or(c[2])]
+            } else {
+                [c[0] + rr * a.cos(), scene.omni_y.unwrap_or(c[1]), c[2] + rr * a.sin()]
+            }
+        })
+        .into_iter()
+        .map(|q| cam.project(q).0)
+        .collect();
         p.extend(Shape::dashed_line(&pts, Stroke::new(1.0, green), 5.0, 5.0));
         if let Some(east) = pts.iter().max_by(|a, b| a.x.total_cmp(&b.x)) {
             p.text(*east + Vec2::new(8.0, 0.0), Align2::LEFT_CENTER, "omni", label_font, green);
