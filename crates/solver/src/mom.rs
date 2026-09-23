@@ -16,6 +16,7 @@ pub struct Segment {
     pub dir: Vec3,
     pub len: f64,
     pub rad: Option<f64>,
+    pub thinned: bool,
     pub props: WireProps,
 }
 
@@ -113,6 +114,7 @@ pub fn segmentise(lines: &[SolveLine], lam: f64, cap: usize) -> Vec<Segment> {
                         dir: scale(d, 1.0 / len),
                         mid: lerp(p0, p1, 0.5),
                         rad: spec.rad.map(|r| r.min(0.3 * len)),
+                        thinned: spec.rad.is_some_and(|r| r > 0.3 * len),
                         props: spec.props,
                     });
                 }
@@ -451,11 +453,12 @@ fn surface_impedance(props: &WireProps, radius: f64, k: f64) -> C64 {
     C64::new(rs, rs) / (2.0 * PI * radius / 1000.0) / 1000.0
 }
 
-fn insulation_log(props: &WireProps, radius: f64) -> f64 {
-    props.insulation.map_or(0.0, |ins| {
+fn insulation_log(props: &WireProps, radius: f64) -> C64 {
+    props.insulation.map_or(C64::new(0.0, 0.0), |ins| {
         let inner = ins.inner.max(radius);
         let outer = ins.outer.max(inner);
-        (1.0 - 1.0 / ins.eps_r.max(1.0)) * (outer / inner).ln()
+        let eps = C64::new(ins.eps_r.max(1.0), -ins.eps_r.max(1.0) * ins.tan_d.max(0.0));
+        (1.0 - eps.inv()) * (outer / inner).ln()
     })
 }
 
@@ -469,7 +472,7 @@ pub fn fill(model: &Model, k: f64) -> System {
     let jk_eta = C64::new(0.0, k * ETA);
     let j_eta_k = C64::new(0.0, ETA / k);
     let eps = model.real_ground.map(|g| complex_permittivity(g, k));
-    let local: Vec<(C64, f64)> = segs
+    let local: Vec<(C64, C64)> = segs
         .iter()
         .map(|s| {
             let r = s.rad.unwrap_or(model.a);

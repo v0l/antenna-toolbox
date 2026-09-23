@@ -101,7 +101,7 @@ fn insulated_dipole_matches_the_nec4_is_card() {
     let bare = resonant_half_length(WireProps { conductivity: Some(COPPER), insulation: None });
     let sheathed = resonant_half_length(WireProps {
         conductivity: Some(COPPER),
-        insulation: Some(Insulation { eps_r: 2.25, inner: 1.0, outer: 3.0 }),
+        insulation: Some(Insulation { eps_r: 2.25, tan_d: 0.0, inner: 1.0, outer: 3.0 }),
     });
     assert!((bare - 2416.0).abs() < 8.0, "bare {bare}");
     assert!((sheathed - 2302.0).abs() < 8.0, "sheathed {sheathed}");
@@ -207,4 +207,37 @@ EN
     assert!((eff - 0.9111).abs() < 0.01, "nec2 91.11 % into the termination, ours {eff}");
     let d = res.directivity.unwrap();
     assert!((d - 9.75).abs() < 0.15, "nec2 9.75 dBi directive gain, ours {d}");
+}
+
+#[test]
+fn a_lossy_sleeve_costs_efficiency_and_a_lossless_one_does_not() {
+    use antenna_solver::geometry::{Insulation, WireGeometry, WireProps};
+    let lam = 299_792.458 / 162.0;
+    let eff = |tan_d: f64| {
+        let props = WireProps {
+            conductivity: None,
+            insulation: Some(Insulation { eps_r: 3.0, tan_d, inner: 1.0, outer: 1.5 }),
+        };
+        let g = WireGeometry::new(vec![vec![[0.0, -430.0, 0.0], [0.0, 430.0, 0.0]]], [0.0; 3])
+            .with_props(props);
+        solve_at(&model_for(&g, lam, 2.0, 900), lam, true).efficiency.unwrap()
+    };
+    let (none, pvc, worse) = (eff(0.0), eff(0.01), eff(0.05));
+    assert!(none > 0.998, "{none}");
+    assert!(pvc < none && pvc > 0.95, "{pvc}");
+    assert!(worse < pvc, "{worse}");
+}
+
+#[test]
+fn segments_fatter_than_they_are_long_are_counted() {
+    let solve = |radius: f64| {
+        let deck = format!(
+            "GW 1 21 0 -0.24 0 0 0.24 0 {radius}\nGE\nFR 0 1 0 0 299.8 0\nEX 0 1 11 0 1 0\nEN\n"
+        );
+        let r = antenna_solver::nec::import(&deck).unwrap();
+        let lam = 299_792.458 / 299.8;
+        solve_at(&model_for(&r.geo, lam, 2.0, 900), lam, false).stubby
+    };
+    assert_eq!(solve(0.001), 0);
+    assert!(solve(0.02) >= 21);
 }

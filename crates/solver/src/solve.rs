@@ -47,6 +47,7 @@ pub struct SolveResult {
     pub peak: f64,
     pub pol: Option<Ellipse>,
     pub hybrid: bool,
+    pub stubby: usize,
 }
 
 impl SolveResult {
@@ -102,6 +103,7 @@ pub fn solve_at(model: &Model, lam: f64, want_pattern: bool) -> SolveResult {
         peak: 0.0,
         pol: None,
         hybrid: false,
+        stubby: model.segs.iter().filter(|s| s.thinned).count(),
     };
 
     if want_pattern {

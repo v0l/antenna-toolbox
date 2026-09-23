@@ -12,6 +12,7 @@ pub struct Mesh {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Insulation {
     pub eps_r: f64,
+    pub tan_d: f64,
     pub inner: f64,
     pub outer: f64,
 }

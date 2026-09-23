@@ -68,8 +68,44 @@ impl Material {
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Cover {
     Bare,
-    Sleeve { eps: f64, thickness: f64 },
-    Tube { eps: f64, inner: f64, wall: f64 },
+    Sleeve { eps: f64, tan: f64, thickness: f64 },
+    Tube { eps: f64, tan: f64, inner: f64, wall: f64 },
+}
+
+pub const PLASTICS: [(&str, f64, f64); 6] = [
+    ("PVC", 3.0, 0.01),
+    ("polyethylene", 2.25, 0.0002),
+    ("PTFE", 2.1, 0.0002),
+    ("ABS", 2.9, 0.005),
+    ("polycarbonate", 2.9, 0.007),
+    ("fibreglass", 4.5, 0.015),
+];
+
+fn plastic_row(ui: &mut Ui, eps: &mut f64, tan: &mut f64) {
+    row_help(
+        ui,
+        "plastic",
+        "Typical VHF values. Pick the closest, then adjust εr and tan δ if you know better.",
+        |ui| {
+            let mut pick =
+                PLASTICS.iter().position(|p| p.1 == *eps && p.2 == *tan).unwrap_or(usize::MAX);
+            let mut options: Vec<(usize, String)> =
+                PLASTICS.iter().enumerate().map(|(i, p)| (i, p.0.to_string())).collect();
+            if pick == usize::MAX {
+                options.push((usize::MAX, "custom".to_string()));
+            }
+            if choice(ui, "plastic", &mut pick, options) && pick < PLASTICS.len() {
+                *eps = PLASTICS[pick].1;
+                *tan = PLASTICS[pick].2;
+            }
+        },
+    );
+    row(ui, "εr", |ui| {
+        ui.add(egui::DragValue::new(eps).range(1.0..=12.0).speed(0.05));
+    });
+    row(ui, "tan δ", |ui| {
+        ui.add(egui::DragValue::new(tan).range(0.0..=0.2).speed(0.0005).max_decimals(4));
+    });
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -201,11 +237,15 @@ impl DesignTab {
             conductivity: self.material.conductivity(),
             insulation: match self.cover {
                 Cover::Bare => None,
-                Cover::Sleeve { eps, thickness } => {
-                    Some(Insulation { eps_r: eps, inner: radius, outer: radius + thickness })
-                }
-                Cover::Tube { eps, inner, wall } => Some(Insulation {
+                Cover::Sleeve { eps, tan, thickness } => Some(Insulation {
                     eps_r: eps,
+                    tan_d: tan,
+                    inner: radius,
+                    outer: radius + thickness,
+                }),
+                Cover::Tube { eps, tan, inner, wall } => Some(Insulation {
+                    eps_r: eps,
+                    tan_d: tan,
                     inner: inner.max(radius),
                     outer: inner.max(radius) + wall,
                 }),
@@ -681,25 +721,21 @@ impl DesignTab {
                     self.cover = match (kind, self.cover) {
                         (0, _) => Cover::Bare,
                         (1, c @ Cover::Sleeve { .. }) | (2, c @ Cover::Tube { .. }) => c,
-                        (1, _) => Cover::Sleeve { eps: 3.5, thickness: 0.5 },
-                        _ => Cover::Tube { eps: 3.0, inner: 10.0, wall: 2.0 },
+                        (1, _) => Cover::Sleeve { eps: 3.0, tan: 0.01, thickness: 0.5 },
+                        _ => Cover::Tube { eps: 3.0, tan: 0.01, inner: 10.0, wall: 2.0 },
                     };
                 },
             );
             match &mut self.cover {
                 Cover::Bare => {}
-                Cover::Sleeve { eps, thickness } => {
-                    row(ui, "εr", |ui| {
-                        ui.add(egui::DragValue::new(eps).range(1.0..=12.0).speed(0.05));
-                    });
+                Cover::Sleeve { eps, tan, thickness } => {
+                    plastic_row(ui, eps, tan);
                     row(ui, "thick mm", |ui| {
                         ui.add(egui::DragValue::new(thickness).range(0.05..=10.0).speed(0.05));
                     });
                 }
-                Cover::Tube { eps, inner, wall } => {
-                    row(ui, "εr", |ui| {
-                        ui.add(egui::DragValue::new(eps).range(1.0..=12.0).speed(0.05));
-                    });
+                Cover::Tube { eps, tan, inner, wall } => {
+                    plastic_row(ui, eps, tan);
                     row(ui, "bore r mm", |ui| {
                         ui.add(egui::DragValue::new(inner).range(0.5..=100.0).speed(0.1));
                     });
@@ -947,6 +983,13 @@ impl DesignTab {
                 }
                 if r.hybrid {
                     items.push(("note", "Z is the feed alone".into(), LEGEND));
+                }
+                if r.stubby > 0 {
+                    items.push((
+                        "unreliable",
+                        format!("{} segments too fat for their length, modelled thinner", r.stubby),
+                        WARN,
+                    ));
                 }
                 readouts(ui, &items);
             },

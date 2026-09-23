@@ -66,6 +66,7 @@ pub fn solve_surface(model: &SurfaceModel, lam: f64, want_pattern: bool) -> Solv
         peak: 0.0,
         pol: None,
         hybrid: false,
+        stubby: 0,
     };
     if want_pattern {
         let field = surface_field(&model.topo, Arc::new(cur), k);

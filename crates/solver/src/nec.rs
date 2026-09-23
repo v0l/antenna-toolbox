@@ -429,8 +429,12 @@ pub fn import(deck: &str) -> Result<Imported, String> {
             "IS" => {
                 let (tag, eps, outer) = (get(1) as i64, get(4), get(6));
                 for w in wires.iter_mut().filter(|w| tag == 0 || w.tag == tag) {
-                    w.props.insulation =
-                        Some(Insulation { eps_r: eps, inner: 0.0, outer: outer * 1000.0 });
+                    w.props.insulation = Some(Insulation {
+                        eps_r: eps,
+                        tan_d: 0.0,
+                        inner: 0.0,
+                        outer: outer * 1000.0,
+                    });
                 }
             }
             "TL" | "NT" => {
