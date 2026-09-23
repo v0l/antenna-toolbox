@@ -58,6 +58,7 @@ pub struct PathTab {
     cov_progress: f32,
     coverage: Option<Arc<Coverage>>,
     overlay: Option<(String, TextureHandle)>,
+    below: f32,
     dem: Dem,
     job: Option<Job<Result<Profile, String>>>,
     profile: Option<Profile>,
@@ -91,6 +92,7 @@ impl Default for PathTab {
             cov_progress: 0.0,
             coverage: None,
             overlay: None,
+            below: 0.0,
             dem: Dem::default(),
             job: None,
             profile: None,
@@ -451,6 +453,15 @@ impl PathTab {
     }
 
     pub fn central(&mut self, ui: &mut Ui) {
+        let map_bottom = self.central_body(ui);
+        let below = ui.min_rect().bottom() - map_bottom;
+        if (below - self.below).abs() > 0.5 {
+            self.below = below;
+            ui.ctx().request_repaint();
+        }
+    }
+
+    fn central_body(&mut self, ui: &mut Ui) -> f32 {
         let freq = self.freq;
         let site = self.site;
         let target = self.target;
@@ -466,7 +477,7 @@ impl PathTab {
             .zip(self.overlay.as_ref())
             .map(|(c, (_, t))| (c.spec.bounds(), c.spec.radius, t.id()));
         let opacity = self.opacity;
-        let height = (ui.ctx().content_rect().height() * 0.72).max(460.0);
+        let height = (ui.clip_rect().bottom() - ui.cursor().top() - self.below - 6.0).max(320.0);
         let drawn = self.map.show(ui, height, site, |c| {
             if let Some(((s, w, n, e), radius, tex)) = overlay {
                 c.p.image(
@@ -523,6 +534,7 @@ impl PathTab {
                 TRACE,
             );
         });
+        let map_bottom = drawn.response.rect.bottom();
         if drawn.response.secondary_clicked() {
             self.picked = drawn.pointer;
         }
@@ -585,7 +597,7 @@ impl PathTab {
             );
         }
         let (Some(p), Some(an)) = (profile, analysis) else {
-            return;
+            return map_bottom;
         };
         section(
             ui,
@@ -662,6 +674,7 @@ impl PathTab {
                 readouts(ui, &items);
             },
         );
+        map_bottom
     }
 }
 
