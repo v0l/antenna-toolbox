@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 tiff.workspace = true
+memmap2.workspace = true
 ureq.workspace = true
 dirs.workspace = true
 num-complex.workspace = true

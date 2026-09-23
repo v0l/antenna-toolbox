@@ -1,7 +1,7 @@
 use crate::charts::{self, GOLD, GREEN};
 use crate::map::MapView;
 use crate::worker::Job;
-use antenna_terrain::coverage::{self, Coverage, Spec};
+use antenna_terrain::coverage::{self, Coverage, Spec, Stage, stride_for};
 use antenna_terrain::itm::{Climate, Params};
 use antenna_terrain::path::{C, fresnel_radius};
 use antenna_terrain::{Analysis, Dem, Endpoint, LatLon, Profile, analyse, radio_horizon};
@@ -34,7 +34,7 @@ const BANDS: [(f64, Color32); 6] = [
 ];
 
 enum CovMsg {
-    Progress(f32),
+    Progress(Stage),
     Done(Result<Coverage, String>),
 }
 
@@ -56,7 +56,7 @@ pub struct PathTab {
     pub show_coverage: bool,
     pub opacity: f32,
     cov_job: Option<Job<CovMsg>>,
-    cov_progress: f32,
+    cov_progress: Stage,
     coverage: Option<Arc<Coverage>>,
     overlay: Option<(String, TextureHandle)>,
     below: f32,
@@ -91,7 +91,7 @@ impl Default for PathTab {
             show_coverage: true,
             opacity: 0.75,
             cov_job: None,
-            cov_progress: 0.0,
+            cov_progress: Stage::Tiles(0, 0),
             coverage: None,
             overlay: None,
             below: 0.0,
@@ -135,8 +135,8 @@ impl PathTab {
             freq_mhz: self.freq,
             params: self.itm,
             radials: ((std::f64::consts::TAU * radius / 100.0).ceil() as usize).clamp(720, 4096),
-            step: (radius / 2000.0).max(30.0),
-            stride: 2,
+            step: 30.0,
+            stride: stride_for(radius, 30.0),
         }
     }
 
@@ -147,7 +147,7 @@ impl PathTab {
 
     pub fn start_coverage(&mut self, ctx: &egui::Context) {
         let (dem, spec) = (self.dem.clone(), self.coverage_spec());
-        self.cov_progress = 0.0;
+        self.cov_progress = Stage::Tiles(0, 0);
         self.cov_job = Some(Job::spawn(ctx, "coverage", move |h| {
             let res = coverage::compute(
                 &dem,
@@ -445,7 +445,7 @@ impl PathTab {
     fn coverage_section(&mut self, ui: &mut Ui) {
         section(ui, "coverage", "every bearing from the site", |ui| {
             row(ui, "radius km", |ui| {
-                ui.add(egui::DragValue::new(&mut self.radius_km).range(2.0..=250.0).speed(1.0));
+                ui.add(egui::DragValue::new(&mut self.radius_km).range(2.0..=500.0).speed(1.0));
             });
             ui.horizontal(|ui| {
                 if self.cov_job.is_some() {
@@ -465,9 +465,16 @@ impl PathTab {
                 }
             });
             if self.cov_job.is_some() {
-                let said =
-                    if self.cov_progress == 0.0 { "loading terrain" } else { "tracing radials" };
-                progress(ui, "coverage", self.cov_progress, Some(1.0), said);
+                match self.cov_progress {
+                    Stage::Tiles(k, of) => progress(
+                        ui,
+                        "terrain",
+                        k as f32,
+                        Some(of.max(1) as f32),
+                        "Copernicus tiles, about 25 MB each the first time",
+                    ),
+                    Stage::Radials(f) => progress(ui, "coverage", f, Some(1.0), "tracing radials"),
+                }
             }
             if self.coverage.is_some() {
                 row(ui, "opacity", |ui| {

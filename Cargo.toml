@@ -19,6 +19,7 @@ pollster = "0.4"
 bytemuck = { version = "1.25", features = ["derive"] }
 serialport = "4.10"
 tiff = "0.11"
+memmap2 = "0.9"
 ureq = "3"
 dirs = "6"
 egui = "0.35"

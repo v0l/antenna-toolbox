@@ -198,6 +198,7 @@ name = "antenna-terrain"
 version = "0.1.0"
 dependencies = [
  "dirs",
+ "memmap2",
  "num-complex",
  "rayon",
  "tiff",

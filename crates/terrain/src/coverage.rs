@@ -49,16 +49,27 @@ impl Coverage {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+pub enum Stage {
+    Tiles(usize, usize),
+    Radials(f32),
+}
+
 pub fn compute(
     dem: &Dem,
     spec: &Spec,
-    progress: &(dyn Fn(f32) + Sync),
+    progress: &(dyn Fn(Stage) + Sync),
     cancel: &AtomicBool,
 ) -> Result<Coverage, String> {
     let (s, w, n, e) = spec.bounds();
-    let sampler = dem.sampler(s, w, n, e)?;
-    Ok(compute_with(&|lat, lon| sampler.elevation(lat, lon), spec, progress, cancel)
+    let sampler = dem.sampler(s, w, n, e, &|k, of| progress(Stage::Tiles(k, of)))?;
+    let radials = |f: f32| progress(Stage::Radials(f));
+    Ok(compute_with(&|lat, lon| sampler.elevation(lat, lon), spec, &radials, cancel)
         .ok_or("cancelled")?)
+}
+
+pub fn stride_for(radius: f64, step: f64) -> usize {
+    ((radius / step / 1500.0).ceil() as usize).max(2)
 }
 
 pub fn compute_with(
