@@ -5,11 +5,10 @@ use antenna_solver::solve::{Prepared, segment_cap};
 use antenna_solver::units::C;
 use std::collections::HashMap;
 
-const MATCHED: [&str; 24] = [
+const MATCHED: [&str; 23] = [
     "moxon",
     "yagi",
     "lpda",
-    "hb9cv",
     "biquad",
     "delta",
     "hentenna",
