@@ -114,6 +114,11 @@ impl PathTab {
         }
     }
 
+    #[cfg(test)]
+    pub fn map_zoom(&self) -> f64 {
+        self.map.camera.as_ref().map(|c| c.zoom).unwrap_or(0.0)
+    }
+
     pub fn sidebar(&mut self, ui: &mut Ui) {
         section(ui, "antenna", "where it is mounted", |ui| {
             row(ui, "lat", |ui| {

@@ -24,6 +24,7 @@ enum Tab {
 
 struct App {
     saved: String,
+    page_offset: f32,
     tab: Tab,
     design: DesignTab,
     vna: VnaTab,
@@ -35,14 +36,17 @@ impl App {
     fn new() -> Self {
         let gpu: Arc<Mutex<Option<String>>> = Arc::default();
         let slot = gpu.clone();
-        std::thread::spawn(move || {
-            let name = antenna_solver::gpu::init().unwrap_or_else(|| "none, CPU only".into());
-            if let Ok(mut g) = slot.lock() {
-                *g = Some(name);
-            }
-        });
+        if !cfg!(test) {
+            std::thread::spawn(move || {
+                let name = antenna_solver::gpu::init().unwrap_or_else(|| "none, CPU only".into());
+                if let Ok(mut g) = slot.lock() {
+                    *g = Some(name);
+                }
+            });
+        }
         let mut app = Self {
             saved: String::new(),
+            page_offset: 0.0,
             tab: Tab::Design,
             design: DesignTab::default(),
             vna: VnaTab::default(),
@@ -101,7 +105,7 @@ impl eframe::App for App {
         });
 
         egui::CentralPanel::default().show(ui, |ui| {
-            egui::ScrollArea::vertical().show(ui, |ui| {
+            let out = egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
                 ui.set_max_width(980.0);
                 match self.tab {
                     Tab::Design => self.design.central(ui),
@@ -110,6 +114,7 @@ impl eframe::App for App {
                 }
                 ui.add_space(20.0);
             });
+            self.page_offset = out.state.offset.y;
         });
     }
 }
@@ -141,6 +146,36 @@ mod tests {
             h.step();
             std::thread::sleep(std::time::Duration::from_millis(50));
         }
+    }
+
+    fn wheel(h: &mut Harness<'_, App>, at: egui::Pos2, dy: f32) {
+        h.hover_at(at);
+        h.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, dy),
+            modifiers: Default::default(),
+            phase: egui::TouchPhase::Move,
+        });
+        h.run_steps(20);
+    }
+
+    #[test]
+    fn scrolling_over_the_map_zooms_it_and_leaves_the_page_alone() {
+        let mut h = Harness::builder().with_size(egui::vec2(1400.0, 360.0)).build_eframe(|cc| {
+            egui_bench::install(&cc.egui_ctx);
+            App::new()
+        });
+        h.state_mut().tab = Tab::Path;
+        h.run_steps(3);
+        let zoom = h.state().path.map_zoom();
+        wheel(&mut h, egui::pos2(800.0, 200.0), -120.0);
+        assert!(h.state().path.map_zoom() < zoom, "map did not zoom out");
+        assert_eq!(h.state().page_offset, 0.0, "page scrolled under the map");
+        wheel(&mut h, egui::pos2(1350.0, 200.0), -120.0);
+        assert!(
+            h.state().page_offset > 0.0,
+            "page does not scroll at all, so the test proves nothing"
+        );
     }
 
     #[test]

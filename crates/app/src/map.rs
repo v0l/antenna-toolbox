@@ -298,7 +298,7 @@ impl MapView {
             cam.center = screen_to_ll(cam.center, cam.zoom, (f64::from(-d.x), f64::from(-d.y)));
         }
         if let (true, Some(pos)) = (resp.hovered(), resp.hover_pos()) {
-            let d = ui.input(|i| i.smooth_scroll_delta.y);
+            let d = ui.input_mut(|i| std::mem::take(&mut i.smooth_scroll_delta).y);
             if d != 0.0 {
                 let next = (cam.zoom + f64::from(d) * 0.004).clamp(2.0, 18.0);
                 cam.center = anchored_zoom(cam.center, cam.zoom, next, offset(pos));

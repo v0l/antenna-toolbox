@@ -176,7 +176,7 @@ pub fn show(
         }
     }
     if resp.hovered() {
-        let s = ui.input(|i| i.smooth_scroll_delta.y);
+        let s = ui.input_mut(|i| std::mem::take(&mut i.smooth_scroll_delta).y);
         if s != 0.0 {
             view.zoom = (view.zoom * (1.0 + s * 0.002)).clamp(0.3, 6.0);
         }
