@@ -13,6 +13,7 @@ antenna-designs.workspace = true
 antenna-vna.workspace = true
 antenna-terrain.workspace = true
 antenna-rf.workspace = true
+antenna-hf.workspace = true
 rayon.workspace = true
 egui.workspace = true
 eframe.workspace = true

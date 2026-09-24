@@ -94,6 +94,8 @@ pub const PRESETS: [Preset; 5] = [
     },
 ];
 
+type Gain<'a> = &'a dyn Fn(f64, f64) -> f64;
+
 type TimeRow = (f64, Result<p452::Output, String>);
 
 enum CovMsg {
@@ -121,6 +123,7 @@ pub struct PathTab {
     pub far_clutter: Option<Clutter>,
     pub street_m: f64,
     pub delta_n: f64,
+    pub hf: crate::hf::HfPanel,
     p452: Option<(String, Vec<TimeRow>)>,
     pub show_coverage: bool,
     pub opacity: f32,
@@ -170,6 +173,7 @@ impl Default for PathTab {
             far_clutter: None,
             street_m: 27.0,
             delta_n: 45.0,
+            hf: crate::hf::HfPanel::new(),
             p452: None,
             show_coverage: true,
             opacity: 0.75,
@@ -603,6 +607,8 @@ impl PathTab {
         self.model_section(ui);
         ui.add_space(8.0);
         self.clutter_section(ui);
+        ui.add_space(8.0);
+        self.hf.sidebar(ui);
     }
 
     fn pattern_section(&mut self, ui: &mut Ui) {
@@ -816,7 +822,32 @@ impl PathTab {
                 .collect()
         });
         let height = (ui.clip_rect().bottom() - ui.cursor().top() - self.below - 6.0).max(320.0);
+        {
+            let mut hf = std::mem::take(&mut self.hf);
+            let (tx, rx) = if self.site_transmits { (site, target) } else { (target, site) };
+            let site_gain = |az: f64, el: f64| self.site_gain(az, el);
+            let far_gain = |az: f64, el: f64| self.far_gain(az, el);
+            let (ta, ra): (Gain, Gain) =
+                if self.site_transmits { (&site_gain, &far_gain) } else { (&far_gain, &site_gain) };
+            let ends = crate::hf::Ends {
+                tx,
+                rx,
+                tx_ant: ta,
+                rx_ant: ra,
+                key: format!(
+                    "{tx:?}|{rx:?}|{}|{}",
+                    self.site_pattern.key(),
+                    self.far_pattern.key()
+                ),
+            };
+            let ctx = ui.ctx().clone();
+            hf.poll(&ctx, &ends);
+            self.hf = hf;
+        }
+        let hf_ctx = ui.ctx().clone();
+        let hf = &mut self.hf;
         let drawn = self.map.show(ui, height, site, |c| {
+            hf.draw_area(&hf_ctx, c, opacity);
             if let Some(((s, w, n, e), radius, tex)) = overlay {
                 c.p.image(
                     tex,
@@ -1056,6 +1087,8 @@ impl PathTab {
             },
         );
         self.p452_card(ui, &p, &an);
+        ui.add_space(8.0);
+        self.hf.central(ui);
         map_bottom
     }
 

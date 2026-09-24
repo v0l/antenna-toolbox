@@ -2,6 +2,7 @@ mod charts;
 mod custom;
 mod design;
 mod drawing;
+mod hf;
 mod map;
 mod matcher;
 mod modes;

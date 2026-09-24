@@ -183,6 +183,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "antenna-hf"
+version = "0.1.0"
+
+[[package]]
 name = "antenna-rf"
 version = "0.1.0"
 dependencies = [
@@ -219,6 +223,7 @@ name = "antenna-toolbox"
 version = "0.1.0"
 dependencies = [
  "antenna-designs",
+ "antenna-hf",
  "antenna-rf",
  "antenna-solver",
  "antenna-terrain",
