@@ -1,5 +1,6 @@
 pub mod analysis;
 pub mod cma;
+pub mod fdtd;
 pub mod geometry;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod gpu;

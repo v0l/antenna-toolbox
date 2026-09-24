@@ -15,6 +15,7 @@ mod groundplane;
 mod hb9cv;
 mod helix;
 mod hentenna;
+mod ifa;
 mod invv;
 mod jpole;
 mod lindenblad;
@@ -23,6 +24,7 @@ mod lpda;
 mod monopole;
 mod moxon;
 mod ocf;
+mod patch;
 mod qfh;
 mod quad;
 mod sleeve;
@@ -35,7 +37,7 @@ pub mod yagi;
 
 use crate::Design;
 
-pub static DESIGNS: [&Design; 34] = [
+pub static DESIGNS: [&Design; 36] = [
     &moxon::MOXON,
     &yagi::YAGI,
     &lpda::LPDA,
@@ -70,6 +72,8 @@ pub static DESIGNS: [&Design; 34] = [
     &lindenblad::LINDENBLAD,
     &turnstile::TURNSTILE,
     &qfh::QFH,
+    &patch::PATCH,
+    &ifa::IFA,
 ];
 
 pub fn by_id(id: &str) -> &'static Design {

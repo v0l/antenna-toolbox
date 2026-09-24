@@ -12,6 +12,10 @@ Each ported model is checked against the reference implementation it came from.
 | Near fields | nec2c NE/NH cards | `solver/tests/validate.rs` | 1% |
 | Characteristic modes | scipy `eig(X, R)` | `solver/tests/validate.rs` | 1e-3 |
 | Matching networks | Pozar examples 5.1, 5.2 | `rf::synth` | textbook rounding |
+| FDTD, empty cavity | analytic resonances | `solver::fdtd::engine` | 0.4% on five modes |
+| FDTD, dipole | energy balance, MoM | `solver/tests/fdtd.rs` | 1% power, 2.15 dBi |
+| FDTD, microstrip patch | Sheen et al. 1990, measured 7.5 GHz | `solver/tests/fdtd.rs` | within 1.5% |
+| FDTD GPU | the CPU engine | `solver/tests/fdtd.rs` | 1% |
 
 ## Known departures from the Recommendations
 
@@ -20,5 +24,8 @@ Each ported model is checked against the reference implementation it came from.
   it out so the two agree.
 - P.533: only analogue circuit reliability (BCR) is reported. The digital
   multimode and scattering terms are not ported.
+- FDTD: metal edges use the 1/3–2/3 mesh rule, without which a patch lands about 4%
+  low. PEC wires are single grid lines, so they behave like a wire about a quarter of
+  a cell in radius.
 - P.452: ΔN and N₀ are entered by hand instead of read from the ITU digital maps,
   which may not be redistributed.

@@ -46,6 +46,8 @@ pub enum ControlId {
     Tau,
     Span,
     ApexAngle,
+    Substrate,
+    Thickness,
 }
 
 pub struct ControlDef {
@@ -70,7 +72,7 @@ const fn ctl(
 }
 
 impl ControlId {
-    pub const ALL: [ControlId; 28] = [
+    pub const ALL: [ControlId; 30] = [
         ControlId::Spacing,
         ControlId::Turns,
         ControlId::Droop,
@@ -99,6 +101,8 @@ impl ControlId {
         ControlId::Tau,
         ControlId::Span,
         ControlId::ApexAngle,
+        ControlId::Substrate,
+        ControlId::Thickness,
     ];
 
     pub fn def(self) -> ControlDef {
@@ -153,6 +157,11 @@ impl ControlId {
             },
             Tau => ctl("τ, element length ratio", 0.9, 0.8, 0.96, 0.01, false),
             Span => ctl("Band, highest over lowest frequency", 1.5, 1.2, 4.0, 0.1, false),
+            Substrate => ControlDef {
+                options: &["FR-4", "Rogers RO4003C", "PTFE", "Air"],
+                ..ctl("Board material", 0.0, 0.0, 3.0, 1.0, true)
+            },
+            Thickness => ctl("Board thickness (mm)", 1.6, 0.2, 3.2, 0.1, false),
         }
     }
 
@@ -197,7 +206,15 @@ pub enum Build {
     Wire,
     Sheet,
     Both,
+    Pcb,
 }
+
+pub const SUBSTRATES: [(&str, f64, f64); 4] = [
+    ("FR-4", 4.3, 0.02),
+    ("Rogers RO4003C", 3.55, 0.0027),
+    ("PTFE", 2.2, 0.0009),
+    ("Air", 1.0, 0.0),
+];
 
 #[derive(Clone, Debug)]
 pub struct Row {

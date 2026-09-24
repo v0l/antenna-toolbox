@@ -36,7 +36,7 @@ fn labels_and_matches_hold_for_every_template() {
     let lam = C / 162.0;
     let fmt = |mm: f64| format!("{mm}");
     let mut failed = Vec::new();
-    for d in DESIGNS.iter() {
+    for d in DESIGNS.iter().filter(|d| d.build != antenna_designs::Build::Pcb) {
         let mut out = d.run(lam, 2.0, &fmt, &HashMap::new(), &default_controls(), 1.0).output;
         dress(&mut out.solve, WireProps { conductivity: Some(COPPER), insulation: None });
         let r = Prepared::new(&out.solve, lam, 2.0, segment_cap()).solve(lam, true);

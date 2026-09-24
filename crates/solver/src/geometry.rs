@@ -165,6 +165,7 @@ pub struct SurfaceGeometry {
 pub enum Geometry {
     Wire(WireGeometry),
     Surface(SurfaceGeometry),
+    Volume(crate::fdtd::Model),
 }
 
 impl Geometry {

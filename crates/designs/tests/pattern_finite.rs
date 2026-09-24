@@ -7,7 +7,7 @@ use std::collections::HashMap;
 fn every_pattern_is_finite_everywhere() {
     let lam = C / 162.0;
     let fmt = |mm: f64| format!("{mm}");
-    for d in DESIGNS.iter() {
+    for d in DESIGNS.iter().filter(|d| d.build != antenna_designs::Build::Pcb) {
         let comp = d.run(lam, 2.0, &fmt, &HashMap::new(), &default_controls(), 1.0);
         let r = Prepared::new(&comp.output.solve, lam, 2.0, segment_cap()).solve(lam, true);
         let p = r.pattern.unwrap();

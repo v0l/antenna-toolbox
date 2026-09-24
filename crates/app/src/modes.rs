@@ -158,7 +158,7 @@ impl ModesPanel {
         }
         let ctx = ui.ctx().clone();
         section(ui, "characteristic modes", "the currents this shape supports on its own", |ui| {
-            if matches!(geo, Geometry::Surface(_)) {
+            if !matches!(geo, Geometry::Wire(_)) {
                 note(ui, "Modes are worked out for wire models only.", LEGEND);
                 return;
             }

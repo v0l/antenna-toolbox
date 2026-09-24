@@ -1,6 +1,6 @@
 use antenna_solver::C64;
 
-const UNBALANCED: [&str; 10] = [
+const UNBALANCED: [&str; 12] = [
     "gp",
     "discone",
     "discmono",
@@ -11,6 +11,8 @@ const UNBALANCED: [&str; 10] = [
     "jpole",
     "sleeve",
     "qfh",
+    "patch",
+    "ifa",
 ];
 
 pub fn is_balanced(id: &str) -> bool {

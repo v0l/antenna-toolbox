@@ -177,6 +177,7 @@ pub fn peak_direction(pattern: &(dyn Fn(Vec3) -> f64 + Sync)) -> Vec3 {
 pub enum Prepared {
     Wire(Model),
     Surface(SurfaceModel),
+    Volume(crate::fdtd::Model),
 }
 
 impl Prepared {
@@ -184,6 +185,7 @@ impl Prepared {
         match geo {
             Geometry::Wire(w) => Prepared::Wire(model_for(w, lam, wire_dia, cap)),
             Geometry::Surface(s) => Prepared::Surface(surface_model(s)),
+            Geometry::Volume(m) => Prepared::Volume(m.clone()),
         }
     }
 
@@ -191,6 +193,15 @@ impl Prepared {
         match self {
             Prepared::Wire(m) => solve_at(m, lam, want_pattern),
             Prepared::Surface(m) => solve_surface(m, lam, want_pattern),
+            Prepared::Volume(m) => {
+                let mut m = m.clone();
+                m.f0 = C * 1e6 / lam;
+                let opts = crate::fdtd::Options { far_field: want_pattern, ..Default::default() };
+                match crate::fdtd::run(&m, &opts, |_, _| true) {
+                    Ok(out) => volume_result(&out),
+                    Err(_) => volume_failed(),
+                }
+            }
         }
     }
 }
@@ -368,4 +379,106 @@ pub fn tune_to_resonance(
     } else {
         Tuned { scale: hi, z: r_hi }
     })
+}
+
+fn volume_failed() -> SolveResult {
+    SolveResult {
+        how: Backend::Cpu,
+        z: C64::new(1e30, 0.0),
+        swr: 99.0,
+        ms: 0.0,
+        segments: 0,
+        max_degree: 2,
+        pattern: None,
+        field: None,
+        dbi: None,
+        directivity: None,
+        efficiency: None,
+        peak: 0.0,
+        pol: None,
+        hybrid: false,
+        stubby: 0,
+        near: None,
+    }
+}
+
+pub fn volume_result(out: &crate::fdtd::Outcome) -> SolveResult {
+    let mut r = volume_failed();
+    r.how = if out.stats.gpu { Backend::Gpu } else { Backend::Cpu };
+    r.z = out.z0;
+    r.swr = swr_of(out.z0, 50.0);
+    r.segments = out.stats.cells;
+    let Some(far) = &out.far else {
+        return r;
+    };
+    let (nt, np) = (91usize, 121usize);
+    let dir = |i: usize, j: usize| {
+        let th = i as f64 / (nt - 1) as f64 * PI;
+        let ph = j as f64 / (np - 1) as f64 * 2.0 * PI;
+        [th.sin() * ph.cos(), th.sin() * ph.sin(), th.cos()]
+    };
+    use rayon::prelude::*;
+    let grid: Vec<[C64; 3]> =
+        (0..nt * np).into_par_iter().map(|k| far.far(dir(k / np, k % np))).collect();
+    let u = |f: &[C64; 3]| crate::fdtd::ntff::intensity(f);
+    let mut total = 0.0;
+    let mut peak: f64 = 0.0;
+    for i in 0..nt - 1 {
+        let th0 = i as f64 / (nt - 1) as f64 * PI;
+        let th1 = (i + 1) as f64 / (nt - 1) as f64 * PI;
+        let band = (th0.cos() - th1.cos()) * 2.0 * PI / (np - 1) as f64;
+        for j in 0..np - 1 {
+            let avg = (u(&grid[i * np + j])
+                + u(&grid[(i + 1) * np + j])
+                + u(&grid[i * np + j + 1])
+                + u(&grid[(i + 1) * np + j + 1]))
+                / 4.0;
+            total += avg * band;
+        }
+    }
+    for f in &grid {
+        peak = peak.max(u(f));
+    }
+    let norm = 1.0 / (peak * 2.0 * crate::fdtd::ETA0).sqrt().max(1e-300);
+    let grid: Vec<[C64; 3]> = grid.iter().map(|f| f.map(|c| c * norm)).collect();
+    let grid = Arc::new(grid);
+    let field: FieldFn = Arc::new(move |d: Vec3| {
+        let th = d[2].clamp(-1.0, 1.0).acos();
+        let mut ph = d[1].atan2(d[0]);
+        if ph < 0.0 {
+            ph += 2.0 * PI;
+        }
+        let x = th / PI * (nt - 1) as f64;
+        let y = ph / (2.0 * PI) * (np - 1) as f64;
+        let (i, j) = ((x.floor() as usize).min(nt - 2), (y.floor() as usize).min(np - 2));
+        let (fx, fy) = (x - i as f64, y - j as f64);
+        let mut re = [0.0; 3];
+        let mut im = [0.0; 3];
+        for (di, dj, w) in [
+            (0, 0, (1.0 - fx) * (1.0 - fy)),
+            (1, 0, fx * (1.0 - fy)),
+            (0, 1, (1.0 - fx) * fy),
+            (1, 1, fx * fy),
+        ] {
+            let f = &grid[(i + di) * np + j + dj];
+            for c in 0..3 {
+                re[c] += w * f[c].re;
+                im[c] += w * f[c].im;
+            }
+        }
+        (re, im)
+    });
+    let pattern = pattern_of(field.clone());
+    if total > 0.0 && out.p_in > 0.0 {
+        let d = 4.0 * PI * peak / total;
+        let eff = (total / out.p_in).min(1.0);
+        r.directivity = Some(10.0 * d.log10());
+        r.efficiency = Some(eff);
+        r.dbi = Some(10.0 * (d * eff).log10());
+        r.peak = 1.0;
+        r.pol = Some(ellipse_at(&field, peak_direction(&*pattern)));
+    }
+    r.pattern = Some(pattern);
+    r.field = Some(field);
+    r
 }

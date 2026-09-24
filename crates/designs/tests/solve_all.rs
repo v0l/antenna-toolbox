@@ -11,7 +11,7 @@ fn every_design_solves_to_something_physical() {
     let fmt = |mm: f64| format_length(mm, Unit::Mm);
     let controls = default_controls();
     let overrides = HashMap::new();
-    for d in DESIGNS.iter() {
+    for d in DESIGNS.iter().filter(|d| d.build != antenna_designs::Build::Pcb) {
         let comp = d.run(lam, 1.0, &fmt, &overrides, &controls, 1.0);
         let prepared = Prepared::new(&comp.output.solve, lam, 1.0, segment_cap());
         let r = prepared.solve(lam, true);

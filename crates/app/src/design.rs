@@ -120,6 +120,39 @@ enum Msg {
     Solved(Arc<SolveResult>, Vec<Quad>, Option<Metrics>),
     Sweep(Vec<SweepPoint>, bool),
     Gain(Vec<(f64, f64, f64)>),
+    Progress(String),
+    #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+    Fallback,
+}
+
+fn fdtd_finish(
+    h: &crate::worker::Handle<Msg>,
+    out: antenna_solver::fdtd::Outcome,
+    radius: f64,
+    up: [f64; 3],
+) {
+    let r = antenna_solver::solve::volume_result(&out);
+    let mesh = r.pattern.as_ref().map(|p| view3d::pattern_mesh(p, radius)).unwrap_or_default();
+    let metrics = analyse(&r, up);
+    let pts: Vec<SweepPoint> = out
+        .sweep
+        .freqs
+        .iter()
+        .zip(&out.sweep.z)
+        .map(|(f, z)| SweepPoint { f: f / 1e6, z: *z })
+        .collect();
+    h.send(Msg::Solved(Arc::new(r), mesh, metrics));
+    h.send(Msg::Sweep(pts, true));
+}
+
+fn fdtd_progress(h: &crate::worker::Handle<Msg>, gpu: bool) -> impl FnMut(usize, f64) -> bool + '_ {
+    move |steps, decay| {
+        h.send(Msg::Progress(format!(
+            "FDTD on the {} · {steps} steps · {decay:.0} of 50 dB settled",
+            if gpu { "GPU" } else { "CPU" }
+        )));
+        !h.cancelled()
+    }
 }
 
 enum OptMsg {
@@ -368,19 +401,26 @@ impl DesignTab {
         for m in msgs {
             match m {
                 Msg::Solved(r, mesh, metrics) => {
-                    let kind = if matches!(self.geometry(), Geometry::Surface(_)) {
+                    let geo = self.geometry();
+                    let kind = if matches!(geo, Geometry::Surface(_)) {
                         "surface MoM (RWG)"
+                    } else if matches!(geo, Geometry::Volume(_)) {
+                        "FDTD"
                     } else if r.hybrid {
                         "wire MoM + physical optics"
                     } else {
                         "wire MoM (Galerkin)"
                     };
-                    self.status = format!(
-                        "{kind} · {} · {} unknowns · {:.0} ms",
-                        r.how.label(),
-                        r.segments,
-                        r.ms
-                    );
+                    self.status = if matches!(geo, Geometry::Volume(_)) {
+                        format!("{kind} · {} · {} cells", r.how.label(), r.segments)
+                    } else {
+                        format!(
+                            "{kind} · {} · {} unknowns · {:.0} ms",
+                            r.how.label(),
+                            r.segments,
+                            r.ms
+                        )
+                    };
                     self.solved = Some(r);
                     self.mesh = Some(mesh);
                     self.metrics = metrics;
@@ -390,6 +430,11 @@ impl DesignTab {
                     self.sweeping = !done;
                 }
                 Msg::Gain(pts) => self.gain_sweep = pts,
+                Msg::Progress(s) => self.status = s,
+                Msg::Fallback => {
+                    let key = self.solved_for.clone();
+                    self.start_fdtd(ctx, key, false);
+                }
             }
         }
         let omsgs = self.opt.as_mut().map(|j| j.poll()).unwrap_or_default();
@@ -460,7 +505,68 @@ impl DesignTab {
         }
     }
 
+    fn start_fdtd(&mut self, ctx: &egui::Context, key: String, try_gpu: bool) {
+        let Geometry::Volume(mut model) = self.geometry() else {
+            return;
+        };
+        model.f0 = self.freq * 1e6;
+        model.span = self.span / 100.0;
+        let scene = self.scene();
+        let up = scene.up();
+        let radius = bounds_of(&scene).radius * 1.3;
+        self.solved_for = key;
+        self.sweep.clear();
+        self.gain_sweep.clear();
+        self.sweeping = true;
+        self.status = "meshing the board…".into();
+        let opts = antenna_solver::fdtd::Options::default();
+        #[cfg(target_arch = "wasm32")]
+        if try_gpu {
+            self.job = Some(Job::spawn_async(ctx, move |h| async move {
+                match antenna_solver::fdtd::run_gpu(&model, &opts, fdtd_progress(&h, true)).await {
+                    Ok(out) => fdtd_finish(&h, out, radius, up),
+                    Err(e) if e == "cancelled" => {}
+                    Err(_) => {
+                        h.send(Msg::Fallback);
+                    }
+                }
+            }));
+            return;
+        }
+        self.job = Some(Job::spawn(ctx, "fdtd", move |h| {
+            #[cfg(not(target_arch = "wasm32"))]
+            let gpu = try_gpu && antenna_solver::fdtd::gpu::available();
+            #[cfg(target_arch = "wasm32")]
+            let gpu = false;
+            let out = if gpu {
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    antenna_solver::fdtd::gpu::block_on(antenna_solver::fdtd::run_gpu(
+                        &model,
+                        &opts,
+                        fdtd_progress(&h, true),
+                    ))
+                    .or_else(|_| antenna_solver::fdtd::run(&model, &opts, fdtd_progress(&h, false)))
+                }
+                #[cfg(target_arch = "wasm32")]
+                unreachable!()
+            } else {
+                antenna_solver::fdtd::run(&model, &opts, fdtd_progress(&h, false))
+            };
+            match out {
+                Ok(out) => fdtd_finish(&h, out, radius, up),
+                Err(e) => {
+                    h.send(Msg::Progress(format!("FDTD failed: {e}")));
+                }
+            }
+        }));
+    }
+
     fn start_solve(&mut self, ctx: &egui::Context, key: String) {
+        if matches!(self.geometry(), Geometry::Volume(_)) {
+            self.start_fdtd(ctx, key, true);
+            return;
+        }
         let lam = self.lam();
         let (freq, span, wire) = (self.freq, self.span / 100.0, self.wire);
         let geo = self.geometry();
@@ -688,6 +794,20 @@ impl DesignTab {
         ));
     }
 
+    fn solved_resonance(&self) -> Option<f64> {
+        let pts = &self.sweep;
+        let best =
+            pts.iter().min_by(|a, b| swr_of(a.z, self.z0).total_cmp(&swr_of(b.z, self.z0)))?;
+        pts.windows(2)
+            .filter(|w| w[0].z.im < 0.0 && w[1].z.im >= 0.0)
+            .map(|w| {
+                let t = -w[0].z.im / (w[1].z.im - w[0].z.im);
+                w[0].f + (w[1].f - w[0].f) * t
+            })
+            .min_by(|a, b| (a - best.f).abs().total_cmp(&(b - best.f).abs()))
+            .or(Some(best.f))
+    }
+
     pub fn scale_params(&mut self, params: &[Tunable], s: f64) {
         for p in params {
             self.overrides.insert(p.key.clone(), p.val * s);
@@ -708,7 +828,7 @@ impl DesignTab {
     pub fn open_template_as_wires(&mut self) {
         let geo = match self.computed().output.solve.clone() {
             Geometry::Wire(w) => w,
-            Geometry::Surface(_) => return,
+            Geometry::Surface(_) | Geometry::Volume(_) => return,
         };
         let base = self.lam() / 2.0;
         match Custom::from_geometry(self.design.name, &geo, self.wire / 2.0, base) {
@@ -765,8 +885,9 @@ impl DesignTab {
     fn export_nec(&mut self) {
         let geo = match self.geometry() {
             Geometry::Wire(w) => w,
-            Geometry::Surface(_) => {
-                self.note = Some("sheet-metal designs have no NEC-2 wire equivalent".into());
+            Geometry::Surface(_) | Geometry::Volume(_) => {
+                self.note =
+                    Some("sheet-metal and PCB designs have no NEC-2 wire equivalent".into());
                 return;
             }
         };
@@ -808,7 +929,7 @@ impl DesignTab {
                     });
                     ui.add_space(4.0);
                 }
-                let wire_only = self.design.build != Build::Sheet;
+                let wire_only = !matches!(self.design.build, Build::Sheet | Build::Pcb);
                 if ui.add_enabled(wire_only, egui::Button::new(action("edit as wires"))).clicked() {
                     self.open_template_as_wires();
                 }
@@ -865,73 +986,76 @@ impl DesignTab {
                     }
                 }
             });
-            row(ui, "wire mm", |ui| {
-                ui.add(
-                    egui::DragValue::new(&mut self.wire)
-                        .range(0.05..=30.0)
-                        .speed(0.01)
-                        .max_decimals(2),
-                );
-            });
-            ui.horizontal_wrapped(|ui| {
-                for (name, mm) in WIRE_PRESETS {
-                    if ui.small_button(format!("{name} {mm}")).clicked() {
-                        self.wire = mm;
+            let pcb = self.source == Source::Template && self.design.build == Build::Pcb;
+            if !pcb {
+                row(ui, "wire mm", |ui| {
+                    ui.add(
+                        egui::DragValue::new(&mut self.wire)
+                            .range(0.05..=30.0)
+                            .speed(0.01)
+                            .max_decimals(2),
+                    );
+                });
+                ui.horizontal_wrapped(|ui| {
+                    for (name, mm) in WIRE_PRESETS {
+                        if ui.small_button(format!("{name} {mm}")).clicked() {
+                            self.wire = mm;
+                        }
                     }
-                }
-            });
-            row(ui, "metal", |ui| {
-                choice(
-                    ui,
-                    "metal",
-                    &mut self.material,
-                    Material::ALL.map(|m| (m, m.label().to_string())),
-                );
-            });
-            row_help(
-                ui,
-                "cover",
-                "Insulation on the wire, or a plastic tube around it. Both pull resonance down; the tube much less than a tight sleeve.",
-                |ui| {
-                    let mut kind = match self.cover {
-                        Cover::Bare => 0,
-                        Cover::Sleeve { .. } => 1,
-                        Cover::Tube { .. } => 2,
-                    };
+                });
+                row(ui, "metal", |ui| {
                     choice(
                         ui,
-                        "cover",
-                        &mut kind,
-                        [
-                            (0, "bare".to_string()),
-                            (1, "insulated".to_string()),
-                            (2, "inside a tube".to_string()),
-                        ],
+                        "metal",
+                        &mut self.material,
+                        Material::ALL.map(|m| (m, m.label().to_string())),
                     );
-                    self.cover = match (kind, self.cover) {
-                        (0, _) => Cover::Bare,
-                        (1, c @ Cover::Sleeve { .. }) | (2, c @ Cover::Tube { .. }) => c,
-                        (1, _) => Cover::Sleeve { eps: 3.0, tan: 0.01, thickness: 0.5 },
-                        _ => Cover::Tube { eps: 3.0, tan: 0.01, inner: 10.0, wall: 2.0 },
-                    };
-                },
-            );
-            match &mut self.cover {
-                Cover::Bare => {}
-                Cover::Sleeve { eps, tan, thickness } => {
-                    plastic_row(ui, eps, tan);
-                    row(ui, "thick mm", |ui| {
-                        ui.add(egui::DragValue::new(thickness).range(0.05..=10.0).speed(0.05));
-                    });
-                }
-                Cover::Tube { eps, tan, inner, wall } => {
-                    plastic_row(ui, eps, tan);
-                    row(ui, "bore r mm", |ui| {
-                        ui.add(egui::DragValue::new(inner).range(0.5..=100.0).speed(0.1));
-                    });
-                    row(ui, "wall mm", |ui| {
-                        ui.add(egui::DragValue::new(wall).range(0.2..=20.0).speed(0.1));
-                    });
+                });
+                row_help(
+                    ui,
+                    "cover",
+                    "Insulation on the wire, or a plastic tube around it. Both pull resonance down; the tube much less than a tight sleeve.",
+                    |ui| {
+                        let mut kind = match self.cover {
+                            Cover::Bare => 0,
+                            Cover::Sleeve { .. } => 1,
+                            Cover::Tube { .. } => 2,
+                        };
+                        choice(
+                            ui,
+                            "cover",
+                            &mut kind,
+                            [
+                                (0, "bare".to_string()),
+                                (1, "insulated".to_string()),
+                                (2, "inside a tube".to_string()),
+                            ],
+                        );
+                        self.cover = match (kind, self.cover) {
+                            (0, _) => Cover::Bare,
+                            (1, c @ Cover::Sleeve { .. }) | (2, c @ Cover::Tube { .. }) => c,
+                            (1, _) => Cover::Sleeve { eps: 3.0, tan: 0.01, thickness: 0.5 },
+                            _ => Cover::Tube { eps: 3.0, tan: 0.01, inner: 10.0, wall: 2.0 },
+                        };
+                    },
+                );
+                match &mut self.cover {
+                    Cover::Bare => {}
+                    Cover::Sleeve { eps, tan, thickness } => {
+                        plastic_row(ui, eps, tan);
+                        row(ui, "thick mm", |ui| {
+                            ui.add(egui::DragValue::new(thickness).range(0.05..=10.0).speed(0.05));
+                        });
+                    }
+                    Cover::Tube { eps, tan, inner, wall } => {
+                        plastic_row(ui, eps, tan);
+                        row(ui, "bore r mm", |ui| {
+                            ui.add(egui::DragValue::new(inner).range(0.5..=100.0).speed(0.1));
+                        });
+                        row(ui, "wall mm", |ui| {
+                            ui.add(egui::DragValue::new(wall).range(0.2..=20.0).speed(0.1));
+                        });
+                    }
                 }
             }
             row(ui, "units", |ui| {
@@ -1080,8 +1204,10 @@ impl DesignTab {
                 ui.add_space(8.0);
                 if !params.is_empty() {
                     self.tune_panel(ui, &params);
-                    ui.add_space(8.0);
-                    self.optimise_panel(ui, &params);
+                    if self.design.build != Build::Pcb {
+                        ui.add_space(8.0);
+                        self.optimise_panel(ui, &params);
+                    }
                     ui.add_space(8.0);
                 }
                 if let Some(cut) = cut {
@@ -1281,10 +1407,28 @@ impl DesignTab {
 
     fn tune_panel(&mut self, ui: &mut Ui, params: &[Tunable]) {
         let ctx = ui.ctx().clone();
+        let pcb = self.source == Source::Template && self.design.build == Build::Pcb;
         let broadband = self.source == Source::Template && self.design.build == Build::Sheet;
         section(ui, "tweak and re-solve", "millimetres", |ui| {
             ui.horizontal(|ui| {
-                if !broadband {
+                if pcb {
+                    let found = (!self.sweeping).then(|| self.solved_resonance()).flatten();
+                    if ui
+                        .add_enabled(
+                            found.is_some(),
+                            egui::Button::new(action("scale to the solved resonance")),
+                        )
+                        .clicked()
+                        && let Some(f) = found
+                    {
+                        self.scale_params(params, f / self.freq);
+                        self.tune_note = Some(format!(
+                            "Resonance was at {f:.1} MHz, so every size was scaled by ×{:.4}.",
+                            f / self.freq
+                        ));
+                    }
+                }
+                if !broadband && !pcb {
                     let label = match self.tune_step {
                         Some(s) => format!("tuning ×{s:.3}"),
                         None => "tune size to resonance".into(),
@@ -1308,7 +1452,9 @@ impl DesignTab {
             }
             hint(
                 ui,
-                if broadband {
+                if pcb {
+                    "One FDTD run gives the whole band, so the resonance is read straight off it and every size is scaled by that frequency over yours. Board thickness is not scaled; run it twice if the first step was large."
+                } else if broadband {
                     "No tune button: this shape has no resonance to tune to. Keep the sizes and match at the feed."
                 } else {
                     "Tuning scales every dimension together, holding the design's ratios, and bisects until the feed reactance crosses zero at your design frequency."
@@ -1374,6 +1520,8 @@ fn short(id: ControlId) -> &'static str {
         Tau => "τ",
         Span => "band ratio",
         ApexAngle => "apex °",
+        Substrate => "board",
+        Thickness => "board mm",
     }
 }
 
