@@ -153,8 +153,11 @@ pub fn start(cc: &eframe::CreationContext<'_>) -> Box<dyn eframe::App> {
 }
 
 #[cfg(target_arch = "wasm32")]
-#[wasm_bindgen::prelude::wasm_bindgen(start)]
-pub fn web_main() {
+pub use wasm_bindgen_rayon::init_thread_pool;
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen]
+pub fn start_app() {
     use wasm_bindgen::JsCast;
     let document = web_sys::window().and_then(|w| w.document()).expect("document");
     let canvas = document

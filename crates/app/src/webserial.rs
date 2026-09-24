@@ -127,10 +127,6 @@ impl Session {
     }
 }
 
-pub async fn yield_now() {
-    vna_sleep(0).await;
-}
-
 pub async fn next_request(
     rx: &Receiver<(f64, f64, usize)>,
     alive: impl Fn() -> bool,

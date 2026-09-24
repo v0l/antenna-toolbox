@@ -5,6 +5,7 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 pub struct Job<T> {
     rx: Receiver<T>,
     cancel: Arc<AtomicBool>,
+    ctx: Option<egui::Context>,
 }
 
 #[derive(Clone)]
@@ -17,7 +18,9 @@ pub struct Handle<T> {
 impl<T> Handle<T> {
     pub fn send(&self, msg: T) -> bool {
         let ok = !self.cancelled() && self.tx.send(msg).is_ok();
-        self.ctx.request_repaint();
+        if !cfg!(target_arch = "wasm32") {
+            self.ctx.request_repaint();
+        }
         ok
     }
 
@@ -25,7 +28,6 @@ impl<T> Handle<T> {
         self.cancel.load(Ordering::Relaxed)
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
     pub fn cancel_flag(&self) -> &AtomicBool {
         &self.cancel
     }
@@ -48,9 +50,9 @@ impl<T: Send + 'static> Job<T> {
         #[cfg(target_arch = "wasm32")]
         {
             let _ = name;
-            wasm_bindgen_futures::spawn_local(async move { f(handle) });
+            rayon::spawn(move || f(handle));
         }
-        Job { rx, cancel }
+        Job { rx, cancel, ctx: Some(ctx.clone()) }
     }
 
     #[cfg(target_arch = "wasm32")]
@@ -62,16 +64,31 @@ impl<T: Send + 'static> Job<T> {
         let cancel = Arc::new(AtomicBool::new(false));
         let handle = Handle { tx, cancel: cancel.clone(), ctx: ctx.clone() };
         wasm_bindgen_futures::spawn_local(f(handle));
-        Job { rx, cancel }
+        Job { rx, cancel, ctx: Some(ctx.clone()) }
     }
 
     #[cfg(test)]
     pub fn from_receiver(rx: Receiver<T>) -> Self {
-        Job { rx, cancel: Arc::new(AtomicBool::new(false)) }
+        Job { rx, cancel: Arc::new(AtomicBool::new(false)), ctx: None }
     }
 
     pub fn poll(&mut self) -> Vec<T> {
-        self.rx.try_iter().collect()
+        let mut out = Vec::new();
+        loop {
+            match self.rx.try_recv() {
+                Ok(m) => out.push(m),
+                Err(std::sync::mpsc::TryRecvError::Empty) => {
+                    if cfg!(target_arch = "wasm32")
+                        && let Some(c) = &self.ctx
+                    {
+                        c.request_repaint_after(web_time::Duration::from_millis(50));
+                    }
+                    break;
+                }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => break,
+            }
+        }
+        out
     }
 }
 

@@ -12,6 +12,8 @@ tiles from `dem/` on the same origin. Whatever serves the page must proxy
 the page can be opened with `?dem=<url>` pointing at another mirror. On Cloudflare
 Pages, `functions/dem/[[path]].js` is that proxy; it only passes GLO-30 tile paths.
 
-The browser build solves on one CPU thread and has no GPU fill, so large coverage
-maps take about a minute. The VNA tab talks to a NanoVNA-H or H4 through Web
+The browser build runs rayon across Web Workers on shared memory, so it needs the
+nightly toolchain with `rust-src` (the build script passes `-Z build-std`) and a page
+served cross-origin isolated; `_headers` and `serve.py` set COOP and COEP. There is no
+GPU fill in the browser. The VNA tab talks to a NanoVNA-H or H4 through Web
 Serial, which Chrome and Edge support.

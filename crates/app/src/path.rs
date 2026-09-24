@@ -271,33 +271,6 @@ impl PathTab {
         self.cov_waiting = false;
         let dem = self.dem.clone();
         self.cov_progress = Stage::Tiles(0, 0);
-        #[cfg(target_arch = "wasm32")]
-        {
-            self.cov_job = Some(Job::spawn_async(ctx, move |h| async move {
-                let sampler = match dem.sampler(s, w, n, e, &|_, _| {}) {
-                    Ok(x) => x,
-                    Err(e) => {
-                        h.send(CovMsg::Done(Box::new(Err(e))));
-                        return;
-                    }
-                };
-                let height = |lat: f64, lon: f64| sampler.elevation(lat, lon);
-                let air = coverage::air_table(&spec, height(spec.site.lat, spec.site.lon).max(0.0));
-                let mut rows = Vec::with_capacity(spec.radials);
-                for r in 0..spec.radials {
-                    if h.cancelled() {
-                        return;
-                    }
-                    rows.push(coverage::radial(&height, &spec, r, air.as_ref()));
-                    if r % 24 == 23 {
-                        h.send(CovMsg::Progress(Stage::Radials(r as f32 / spec.radials as f32)));
-                        crate::webserial::yield_now().await;
-                    }
-                }
-                h.send(CovMsg::Done(Box::new(Ok(coverage::assemble(&spec, rows)))));
-            }));
-        }
-        #[cfg(not(target_arch = "wasm32"))]
         {
             self.cov_job = Some(Job::spawn(ctx, "coverage", move |h| {
                 let res = coverage::compute(

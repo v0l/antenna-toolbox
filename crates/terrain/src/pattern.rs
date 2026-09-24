@@ -58,14 +58,18 @@ impl Pattern {
         mirror_below: bool,
         gain: impl Fn(f64, f64) -> f64 + Sync,
     ) -> Pattern {
-        let db = (0..EL * AZ)
-            .into_par_iter()
-            .map(|i| {
-                let (e, a) = (i / AZ, i % AZ);
-                let v = gain(a as f64, e as f64 - 90.0);
-                (if v.is_finite() { v } else { -100.0 }).max(-100.0) as f32
-            })
-            .collect();
+        let cell = |i: usize| {
+            let (e, a) = (i / AZ, i % AZ);
+            let v = gain(a as f64, e as f64 - 90.0);
+            (if v.is_finite() { v } else { -100.0 }).max(-100.0) as f32
+        };
+        let blocking_allowed =
+            !cfg!(target_arch = "wasm32") || rayon::current_thread_index().is_some();
+        let db = if blocking_allowed {
+            (0..EL * AZ).into_par_iter().map(cell).collect()
+        } else {
+            (0..EL * AZ).map(cell).collect()
+        };
         Pattern { name: name.into(), freq_mhz, absolute, mirror_below, db }
     }
 

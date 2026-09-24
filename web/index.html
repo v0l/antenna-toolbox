@@ -12,8 +12,10 @@
 <body>
 <canvas id="antenna-toolbox"></canvas>
 <script type="module">
-  import init from "./pkg/antenna_toolbox.js";
-  init();
+  import init, { initThreadPool, start_app } from "./pkg/antenna_toolbox.js";
+  await init();
+  await initThreadPool(navigator.hardwareConcurrency || 4);
+  start_app();
 </script>
 </body>
 </html>
