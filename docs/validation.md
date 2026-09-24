@@ -24,7 +24,7 @@ Each ported model is checked against the reference implementation it came from.
   it out so the two agree.
 - P.533: only analogue circuit reliability (BCR) is reported. The digital
   multimode and scattering terms are not ported.
-- FDTD: metal edges use the 1/3–2/3 mesh rule, without which a patch lands about 4%
+- FDTD: metal edges use the 1/3 and 2/3 mesh rule, without which a patch lands about 4%
   low. PEC wires are single grid lines, so they behave like a wire about a quarter of
   a cell in radius.
 - P.452: ΔN and N₀ are entered by hand instead of read from the ITU digital maps,

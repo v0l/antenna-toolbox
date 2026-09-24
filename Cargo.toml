@@ -6,6 +6,8 @@ members = ["crates/*"]
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
+repository = "https://github.com/v0l/antenna-toolbox"
+description = "Antenna modelling, NanoVNA control and radio path planning"
 
 [workspace.dependencies]
 antenna-solver = { path = "crates/solver" }

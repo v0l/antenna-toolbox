@@ -3,6 +3,25 @@ name = "antenna-toolbox"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
+description.workspace = true
+
+[package.metadata.deb]
+name = "antenna-toolbox"
+maintainer = "v0l <kieran@harkin.me>"
+copyright = "v0l"
+license-file = ["../../LICENSE", "0"]
+section = "hamradio"
+priority = "optional"
+extended-description = """\
+Wire antenna modelling by the method of moments, FDTD for printed antennas, \
+NanoVNA control with calibration, and point to point, coverage and HF \
+skywave path planning."""
+assets = [
+    ["target/release/antenna-toolbox", "usr/bin/", "755"],
+    ["../../packaging/linux/antenna-toolbox.desktop", "usr/share/applications/", "644"],
+    ["../../README.md", "usr/share/doc/antenna-toolbox/README.md", "644"],
+]
 
 [lib]
 crate-type = ["cdylib", "rlib"]

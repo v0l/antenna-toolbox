@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package
+      Name="Antenna Toolbox"
+      Manufacturer="v0l"
+      Version="$(var.Version)"
+      UpgradeCode="2886fa69-7db7-46a2-85b3-e478748aa6c3"
+      Scope="perMachine"
+      Compressed="yes">
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Antenna Toolbox is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/v0l/antenna-toolbox" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Antenna Toolbox">
+        <Component Id="AppExe" Guid="901f07e9-301a-4e3f-94c0-6d47d60c6cea">
+          <File Id="AntennaToolboxExe" Source="$(var.BinDir)\antenna-toolbox.exe" KeyPath="yes" />
+        </Component>
+        <Component Id="AppDocs" Guid="c55810c2-0988-4042-9c93-bb0444f33e51">
+          <File Id="ReadmeMd" Source="README.md" KeyPath="yes" />
+          <File Id="LicenseTxt" Source="LICENSE" Name="LICENSE.txt" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Component Id="AppShortcut" Guid="3d292e81-600f-43f4-b613-7921ded0fe47">
+        <Shortcut Id="AntennaToolboxShortcut" Name="Antenna Toolbox" Target="[#AntennaToolboxExe]" WorkingDirectory="INSTALLFOLDER" />
+        <RegistryValue Root="HKLM" Key="Software\v0l\AntennaToolbox" Name="shortcut" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
+
+    <Feature Id="Main" Title="Antenna Toolbox" Level="1">
+      <ComponentRef Id="AppExe" />
+      <ComponentRef Id="AppDocs" />
+      <ComponentRef Id="AppShortcut" />
+    </Feature>
+  </Package>
+</Wix>
