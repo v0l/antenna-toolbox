@@ -25,7 +25,7 @@ use path::PathTab;
 use std::sync::{Arc, Mutex};
 use vna::VnaTab;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Tab {
     Design,
     Vna,
@@ -128,7 +128,7 @@ impl eframe::App for App {
                 &mut self.tab,
                 &[(Tab::Design, "design"), (Tab::Vna, "vna"), (Tab::Path, "path")],
             );
-            match self.tab {
+            ui.push_id("pages", |ui| match self.tab {
                 Tab::Design => {
                     tabs(ui, &mut self.design.page, &design::Page::TABS);
                 }
@@ -139,7 +139,7 @@ impl eframe::App for App {
                     }
                 }
                 Tab::Vna => {}
-            }
+            });
         });
 
         egui::Panel::left("side").exact_size(330.0).show(ui, |ui| {
@@ -250,6 +250,39 @@ mod tests {
             h.state().page_offset > 0.0,
             "page does not scroll at all, so the test proves nothing"
         );
+    }
+
+    fn click(h: &mut Harness<'_, App>, at: egui::Pos2) {
+        h.hover_at(at);
+        h.run_steps(2);
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: Default::default(),
+            });
+            h.run_steps(2);
+        }
+    }
+
+    #[test]
+    fn the_page_strip_changes_the_page_not_the_tab() {
+        let mut h = Harness::builder().with_size(egui::vec2(1400.0, 800.0)).build_eframe(|cc| {
+            egui_bench::install(&cc.egui_ctx);
+            App::new()
+        });
+        h.run_steps(3);
+        click(&mut h, egui::pos2(80.0, 81.0));
+        h.run_steps(3);
+        assert_eq!(h.state().tab, Tab::Design);
+        assert_eq!(h.state().design.page, design::Page::Tune);
+        h.state_mut().tab = Tab::Path;
+        h.run_steps(3);
+        click(&mut h, egui::pos2(200.0, 81.0));
+        h.run_steps(3);
+        assert_eq!(h.state().tab, Tab::Path);
+        assert_eq!(h.state().path.mode, path::PathMode::Broadcast);
     }
 
     #[test]
