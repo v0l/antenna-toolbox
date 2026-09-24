@@ -14,7 +14,8 @@ use antenna_solver::analysis::{Metrics, analyse};
 use antenna_solver::geometry::{ALUMINIUM, BRASS, COPPER, Geometry, Insulation, STEEL, WireProps};
 use antenna_solver::nec;
 use antenna_solver::solve::{
-    Prepared, SolveResult, SweepPoint, segment_cap, sweep, sweep_cap, swr_of, tune_to_resonance,
+    Prepared, SolveResult, SweepPoint, fast_sweep, segment_cap, sweep_cap, swr_of,
+    tune_to_resonance,
 };
 use antenna_solver::units::{C, Unit, format_length, wavelength};
 use egui::{Color32, Ui};
@@ -23,7 +24,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use web_time::{Duration, Instant};
 
-const SWEEP_POINTS: usize = 21;
+const SWEEP_POINTS: usize = 121;
 const GAIN_POINTS: usize = 11;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -447,20 +448,19 @@ impl DesignTab {
             }
             if !hybrid {
                 let model = Prepared::new(&geo, lam, wire, sweep_cap());
-                let pts = sweep(
-                    &model,
+                let pts = fast_sweep(
+                    |f| model.solve(C / f, false).z,
                     freq,
                     span,
                     SWEEP_POINTS,
+                    2e-3,
                     |p| {
-                        if p.len() > 2 && p.len() % 4 == 0 {
-                            h.send(Msg::Sweep(p.to_vec(), false));
-                        }
+                        h.send(Msg::Sweep(p.to_vec(), false));
                     },
                     || h.cancelled(),
                 );
                 match pts {
-                    Some(p) => h.send(Msg::Sweep(p, true)),
+                    Some(p) => h.send(Msg::Sweep(p.points, true)),
                     None => return,
                 };
             } else {

@@ -27,6 +27,7 @@ pub mod near;
 pub mod nec;
 pub mod po;
 pub mod polarisation;
+pub mod rational;
 pub mod solve;
 pub mod sommerfeld;
 pub mod surface;

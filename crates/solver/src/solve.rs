@@ -222,6 +222,97 @@ pub fn sweep(
     Some(out)
 }
 
+pub struct FastSweep {
+    pub points: Vec<SweepPoint>,
+    pub solves: usize,
+}
+
+fn gamma50(z: C64) -> C64 {
+    (z - 50.0) / (z + 50.0)
+}
+
+pub fn fast_sweep(
+    solve_z: impl Fn(f64) -> C64,
+    f0: f64,
+    span_fraction: f64,
+    points: usize,
+    tol: f64,
+    mut on_progress: impl FnMut(&[SweepPoint]),
+    cancelled: impl Fn() -> bool,
+) -> Option<FastSweep> {
+    use crate::rational::Rational;
+    let points = points.max(2);
+    let x = |i: usize| -1.0 + 2.0 * i as f64 / (points - 1) as f64;
+    let freq = |i: usize| f0 * (1.0 + span_fraction * x(i));
+    let mut solved: Vec<(usize, C64)> = Vec::new();
+    let add = |i: usize, solved: &mut Vec<(usize, C64)>| {
+        solved.push((i, solve_z(freq(i))));
+        solved.sort_by_key(|s| s.0);
+    };
+    let seeds = [0, points / 4, points / 2, 3 * points / 4, points - 1];
+    for &i in &seeds {
+        if cancelled() {
+            return None;
+        }
+        if !solved.iter().any(|s| s.0 == i) {
+            add(i, &mut solved);
+        }
+    }
+    let fit = |solved: &[(usize, C64)]| {
+        let xs: Vec<f64> = solved.iter().map(|s| x(s.0)).collect();
+        let fs: Vec<C64> = solved.iter().map(|s| s.1).collect();
+        Rational::aaa(&xs, &fs, 1e-13, xs.len())
+    };
+    let curve = |r: &Rational, solved: &[(usize, C64)]| -> Vec<SweepPoint> {
+        (0..points)
+            .map(|i| SweepPoint {
+                f: freq(i),
+                z: solved.iter().find(|s| s.0 == i).map(|s| s.1).unwrap_or_else(|| r.eval(x(i))),
+            })
+            .collect()
+    };
+    let mut prev: Option<Rational> = None;
+    let mut calm = 0;
+    while solved.len() < points {
+        if cancelled() {
+            return None;
+        }
+        let cur = fit(&solved);
+        on_progress(&curve(&cur, &solved));
+        let open = (0..points).filter(|i| !solved.iter().any(|s| s.0 == *i));
+        let (next, gap) = match &prev {
+            Some(p) => open
+                .map(|i| {
+                    let (a, b) = (p.eval(x(i)), cur.eval(x(i)));
+                    let d = if a.is_finite() && b.is_finite() {
+                        (gamma50(a) - gamma50(b)).norm()
+                    } else {
+                        f64::INFINITY
+                    };
+                    (i, d)
+                })
+                .max_by(|a, b| a.1.total_cmp(&b.1))
+                .unwrap_or((0, 0.0)),
+            None => {
+                let far = |i: usize| solved.iter().map(|s| s.0.abs_diff(i)).min().unwrap_or(0);
+                (open.max_by_key(|&i| far(i)).unwrap_or(0), f64::INFINITY)
+            }
+        };
+        prev = Some(cur);
+        if gap < tol {
+            calm += 1;
+            if calm >= 2 {
+                break;
+            }
+        } else {
+            calm = 0;
+        }
+        add(next, &mut solved);
+    }
+    let r = fit(&solved);
+    Some(FastSweep { points: curve(&r, &solved), solves: solved.len() })
+}
+
 pub struct Tuned {
     pub scale: f64,
     pub z: C64,
