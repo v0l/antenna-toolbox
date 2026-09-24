@@ -54,10 +54,18 @@ impl App {
                 }
             });
         }
-        if cfg!(target_arch = "wasm32")
-            && let Ok(mut g) = gpu.lock()
+        #[cfg(target_arch = "wasm32")]
         {
-            *g = Some("none in the browser, CPU only".into());
+            let slot = gpu.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let name = match antenna_solver::fdtd::gpu::adapter().await {
+                    Some(_) => "WebGPU for FDTD, CPU for MoM".to_string(),
+                    None => "none in the browser, CPU only".into(),
+                };
+                if let Ok(mut g) = slot.lock() {
+                    *g = Some(name);
+                }
+            });
         }
         let mut app = Self {
             saved: String::new(),
