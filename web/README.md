@@ -17,3 +17,8 @@ nightly toolchain with `rust-src` (the build script passes `-Z build-std`) and a
 served cross-origin isolated; `_headers` and `serve.py` set COOP and COEP. There is no
 GPU fill in the browser. The VNA tab talks to a NanoVNA-H or H4 through Web
 Serial, which Chrome and Edge support.
+
+The FDTD solver for the PCB templates runs on WebGPU when the browser offers it and
+falls back to the CPU workers otherwise. The HF prediction fetches the month's
+ionospheric maps (about 11 MB) straight from the ITU-R-HF repository on GitHub, which
+serves them with CORS headers.
