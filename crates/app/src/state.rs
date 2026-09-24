@@ -40,6 +40,7 @@ pub fn snapshot(app: &App) -> BTreeMap<&'static str, String> {
     m.insert("site_clutter", p.site_clutter.map_or(0, |c| c as u8).to_string());
     m.insert("far_clutter", p.far_clutter.map_or(0, |c| c as u8).to_string());
     m.insert("street_m", p.street_m.to_string());
+    m.insert("delta_n", p.delta_n.to_string());
     for (tag, slot) in [("", &p.site_pattern), ("far_", &p.far_pattern)] {
         m.insert(leak(format!("{tag}heading")), slot.mount.heading.to_string());
         m.insert(leak(format!("{tag}tilt")), slot.mount.tilt.to_string());
@@ -119,6 +120,7 @@ pub fn load(app: &mut App) {
     num("itm_situation", &mut p.itm.situation);
     num("radius_km", &mut p.radius_km);
     num("street_m", &mut p.street_m);
+    num("delta_n", &mut p.delta_n);
     let clutter = |k: &str| {
         m.get(k)
             .and_then(|v| v.parse::<u8>().ok())

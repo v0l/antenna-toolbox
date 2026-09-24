@@ -4,6 +4,7 @@ use crate::slot::PatternSlot;
 use crate::worker::Job;
 use antenna_terrain::coverage::{self, Coverage, Spec, Stage, stride_for};
 use antenna_terrain::itm::{Climate, Params};
+use antenna_terrain::p452;
 use antenna_terrain::p2108::{self, Clutter};
 use antenna_terrain::path::{C, fresnel_radius};
 use antenna_terrain::{Analysis, Dem, Endpoint, LatLon, Profile, analyse, radio_horizon};
@@ -93,6 +94,8 @@ pub const PRESETS: [Preset; 5] = [
     },
 ];
 
+type TimeRow = (f64, Result<p452::Output, String>);
+
 enum CovMsg {
     Progress(Stage),
     Done(Box<Result<Coverage, String>>),
@@ -117,6 +120,8 @@ pub struct PathTab {
     pub site_clutter: Option<Clutter>,
     pub far_clutter: Option<Clutter>,
     pub street_m: f64,
+    pub delta_n: f64,
+    p452: Option<(String, Vec<TimeRow>)>,
     pub show_coverage: bool,
     pub opacity: f32,
     cov_job: Option<Job<CovMsg>>,
@@ -164,6 +169,8 @@ impl Default for PathTab {
             site_clutter: None,
             far_clutter: None,
             street_m: 27.0,
+            delta_n: 45.0,
+            p452: None,
             show_coverage: true,
             opacity: 0.75,
             cov_job: None,
@@ -661,6 +668,14 @@ impl PathTab {
             );
             row_help(
                 ui,
+                "ΔN units/km",
+                "Refractivity lapse rate through the lowest kilometre, from the ITU-R P.452 map at the middle of the path. About 40 to 50 over north-west Europe. Only the P.452 time table uses it.",
+                |ui| {
+                    ui.add(egui::DragValue::new(&mut self.delta_n).range(20.0..=100.0).speed(0.5));
+                },
+            );
+            row_help(
+                ui,
                 "time %",
                 "Fraction of the time the loss is no worse than predicted. 50 is the median; 90 plans for bad days.",
                 |ui| {
@@ -1040,7 +1055,79 @@ impl PathTab {
                 readouts(ui, &items);
             },
         );
+        self.p452_card(ui, &p, &an);
         map_bottom
+    }
+
+    fn p452_card(&mut self, ui: &mut Ui, p: &Profile, an: &Analysis) {
+        if an.airborne || !(100.0..=50_000.0).contains(&self.freq) {
+            return;
+        }
+        let gt = self.site_gain(an.bearing, an.takeoff_deg);
+        let gr = self.far_gain((an.bearing + 180.0).rem_euclid(360.0), an.arrival_deg);
+        let key = format!(
+            "{}|{}|{}|{}|{}|{}|{:.1}|{:.1}",
+            self.fetched_for,
+            self.freq,
+            self.delta_n,
+            self.itm.n_0,
+            self.itm.vertical,
+            p.samples.len(),
+            gt,
+            gr
+        );
+        if self.p452.as_ref().is_none_or(|(k, _)| *k != key) {
+            let climate =
+                p452::Climate { dn: self.delta_n, n0: self.itm.n_0, press: 1013.25, temp: 15.0 };
+            let rows = [50.0, 10.0, 1.0, 0.1, 0.01]
+                .iter()
+                .map(|&t| {
+                    (t, p452::for_profile(p, self.freq, t, &climate, self.itm.vertical, gt, gr))
+                })
+                .collect();
+            self.p452 = Some((key, rows));
+        }
+        let Some((_, rows)) = &self.p452 else {
+            return;
+        };
+        ui.add_space(8.0);
+        section(
+            ui,
+            "time variability",
+            "ITU-R P.452, ducting, layer reflection and troposcatter",
+            |ui| {
+                let mut items = Vec::new();
+                for (t, r) in rows {
+                    match r {
+                        Ok(o) => {
+                            let rx = self.budget(o.lb, gt, gr);
+                            let m = rx - self.sens_dbm;
+                            items.push((
+                                time_label(*t),
+                                format!("{:.1} dB · {:+.1}", o.lb, m),
+                                if m > 0.0 { OK } else { FAULT },
+                            ));
+                        }
+                        Err(e) => items.push((time_label(*t), e.clone(), FAULT)),
+                    }
+                }
+                readouts(ui, &items);
+                hint(
+                    ui,
+                    "Basic loss not exceeded for that share of the time, then your margin. Longley-Rice above gives the everyday figure; P.452 adds the anomalous propagation that brings in distant stations on a few days a year. It is written for interference studies, so it leans toward less loss than Longley-Rice even at 50%. The terrain here is the surface model, and sea is anywhere at sea level.",
+                );
+            },
+        );
+    }
+}
+
+fn time_label(t: f64) -> &'static str {
+    match t {
+        t if t >= 50.0 => "50% of the time",
+        t if t >= 10.0 => "10%",
+        t if t >= 1.0 => "1%",
+        t if t >= 0.1 => "0.1%",
+        _ => "0.01%",
     }
 }
 
