@@ -165,7 +165,38 @@ enum TuneMsg {
     Done(Option<(f64, C64)>),
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+pub enum Page {
+    Build,
+    Tune,
+    Match,
+    Fields,
+}
+
+impl Page {
+    pub const TABS: [(Page, &'static str); 4] = [
+        (Page::Build, "build"),
+        (Page::Tune, "tune"),
+        (Page::Match, "feed and match"),
+        (Page::Fields, "fields and modes"),
+    ];
+
+    pub fn key(self) -> &'static str {
+        match self {
+            Page::Build => "build",
+            Page::Tune => "tune",
+            Page::Match => "match",
+            Page::Fields => "fields",
+        }
+    }
+
+    pub fn from_key(k: &str) -> Option<Self> {
+        Self::TABS.iter().map(|t| t.0).find(|p| p.key() == k)
+    }
+}
+
 pub struct DesignTab {
+    pub page: Page,
     pub design: &'static Design,
     pub source: Source,
     pub custom: Custom,
@@ -209,6 +240,7 @@ pub struct DesignTab {
 impl Default for DesignTab {
     fn default() -> Self {
         Self {
+            page: Page::Build,
             design: DESIGNS[0],
             source: Source::Template,
             custom: Custom::default(),
@@ -1119,25 +1151,48 @@ impl DesignTab {
 
     pub fn central(&mut self, ui: &mut Ui) {
         let height = ui.available_height();
+        let page = self.page;
         ui.columns(2, |cols| {
-            egui::ScrollArea::vertical().id_salt("build-pane").max_height(height).show(
+            egui::ScrollArea::vertical().id_salt(("left-pane", page)).max_height(height).show(
                 &mut cols[0],
                 |ui| {
-                    self.build_pane(ui);
+                    match page {
+                        Page::Build => self.build_pane(ui),
+                        Page::Tune => self.tune_pane(ui),
+                        Page::Match => self.match_pane(ui),
+                        Page::Fields => self.near_pane(ui),
+                    }
                     ui.add_space(20.0);
                 },
             );
-            egui::ScrollArea::vertical().id_salt("results-pane").max_height(height).show(
+            egui::ScrollArea::vertical().id_salt(("right-pane", page)).max_height(height).show(
                 &mut cols[1],
                 |ui| {
-                    self.results_pane(ui);
+                    self.solved_card(ui);
+                    ui.add_space(8.0);
+                    match page {
+                        Page::Build => {
+                            self.view_3d(ui);
+                            self.cuts(ui);
+                        }
+                        Page::Tune => {
+                            self.swr_section(ui);
+                            self.gain_section(ui);
+                            self.cuts(ui);
+                        }
+                        Page::Match => {
+                            self.swr_section(ui);
+                            self.matcher_section(ui);
+                        }
+                        Page::Fields => self.modes_section(ui),
+                    }
                     ui.add_space(20.0);
                 },
             );
         });
     }
 
-    fn build_pane(&mut self, ui: &mut Ui) {
+    fn header_card(&mut self, ui: &mut Ui) {
         let lam = self.lam();
         let fmt = self.fmt();
         let name = self.name();
@@ -1169,11 +1224,61 @@ impl DesignTab {
             },
         );
         ui.add_space(8.0);
+    }
+
+    fn tune_pane(&mut self, ui: &mut Ui) {
+        self.header_card(ui);
+        let params = match self.source {
+            Source::Custom => Vec::new(),
+            Source::Template => self.computed().params.clone(),
+        };
+        if self.source == Source::Template && params.is_empty() {
+            note(ui, "This template has nothing to tune.", LEGEND);
+            return;
+        }
+        self.tune_panel(ui, &params);
+        if self.source == Source::Template && self.design.build != Build::Pcb {
+            ui.add_space(8.0);
+            self.optimise_panel(ui, &params);
+        }
+    }
+
+    fn match_pane(&mut self, ui: &mut Ui) {
+        self.header_card(ui);
+        let (Some(plan), Some(r)) = (self.plan(), self.solved.clone()) else {
+            note(ui, "Solving…", LEGEND);
+            return;
+        };
+        let fmt = self.fmt();
+        match_panel(ui, &plan, r.z, self.freq, &fmt);
+        if self.source == Source::Template {
+            ui.add_space(8.0);
+            let feed = self.computed().output.feed.block();
+            section(ui, "feed", feed.title, |ui| {
+                if let Some(d) = &feed.drawing {
+                    drawing::show(ui, d);
+                }
+                rich::prose(ui, &feed.note);
+            });
+        }
+    }
+
+    fn near_pane(&mut self, ui: &mut Ui) {
+        let solved = self.solved.clone();
+        let Some((r, near)) = solved.as_ref().and_then(|r| r.near.clone().map(|n| (r, n))) else {
+            note(ui, "No near field for this model.", LEGEND);
+            return;
+        };
+        let up = self.scene().up();
+        let lam = self.lam();
+        self.near.show(ui, &near, up, lam, self.freq, r.dbi.unwrap_or(0.0));
+    }
+
+    fn build_pane(&mut self, ui: &mut Ui) {
+        self.header_card(ui);
         match self.source {
             Source::Custom => {
                 section(ui, "wires", "edit the model directly", |ui| self.custom.editor(ui));
-                ui.add_space(8.0);
-                self.tune_panel(ui, &[]);
             }
             Source::Template => {
                 let comp = self.computed();
@@ -1182,7 +1287,6 @@ impl DesignTab {
                 let diagram = comp.output.diagram.clone();
                 let feed = comp.output.feed.block();
                 let notes = comp.output.notes.clone();
-                let params = comp.params.clone();
                 section(ui, "cut sheet", "build to these", |ui| {
                     for r in &rows {
                         ui.horizontal(|ui| {
@@ -1202,14 +1306,6 @@ impl DesignTab {
                 ui.add_space(8.0);
                 section(ui, "drawing", "", |ui| drawing::show(ui, &diagram));
                 ui.add_space(8.0);
-                if !params.is_empty() {
-                    self.tune_panel(ui, &params);
-                    if self.design.build != Build::Pcb {
-                        ui.add_space(8.0);
-                        self.optimise_panel(ui, &params);
-                    }
-                    ui.add_space(8.0);
-                }
                 if let Some(cut) = cut {
                     let design = self.design;
                     section(ui, "cut file", "DXF, millimetres", |ui| {
@@ -1234,10 +1330,9 @@ impl DesignTab {
         }
     }
 
-    fn results_pane(&mut self, ui: &mut Ui) {
+    fn solved_card(&mut self, ui: &mut Ui) {
         let solved = self.solved.clone();
         let metrics = self.metrics.clone();
-        let plan = self.plan();
         let z0 = self.z0;
         let freq = self.freq;
         card(
@@ -1307,13 +1402,18 @@ impl DesignTab {
                 readouts(ui, &items);
             },
         );
-        ui.add_space(8.0);
+    }
+
+    fn view_3d(&mut self, ui: &mut Ui) {
         let status_line = self.status.clone();
         let scene = self.scene();
         view3d::show(ui, &scene, self.mesh.as_deref(), &mut self.view, 340.0, &status_line);
         view3d::controls(ui, &mut self.view);
         ui.add_space(8.0);
-        if let Some(m) = &metrics {
+    }
+
+    fn cuts(&mut self, ui: &mut Ui) {
+        if let Some(m) = &self.metrics {
             section(ui, "pattern cuts", "dBi, through the peak", |ui| {
                 let w = (ui.available_width() / 2.0 - 6.0).max(120.0);
                 ui.horizontal(|ui| {
@@ -1323,6 +1423,13 @@ impl DesignTab {
             });
             ui.add_space(8.0);
         }
+    }
+
+    fn swr_section(&mut self, ui: &mut Ui) {
+        let solved = self.solved.clone();
+        let plan = self.plan();
+        let z0 = self.z0;
+        let freq = self.freq;
         section(ui, "modelled swr", &format!("{z0} Ω reference"), |ui| {
             if solved.as_ref().is_some_and(|r| r.hybrid) {
                 note(
@@ -1346,6 +1453,10 @@ impl DesignTab {
             }
         });
         ui.add_space(8.0);
+    }
+
+    fn gain_section(&mut self, ui: &mut Ui) {
+        let freq = self.freq;
         if self.gain_sweep.len() > 1 {
             section(ui, "gain across the band", "toward the peak at the design frequency", |ui| {
                 let span = self.span / 100.0;
@@ -1383,22 +1494,20 @@ impl DesignTab {
             });
             ui.add_space(8.0);
         }
-        if let (Some(plan), Some(r)) = (&plan, &solved) {
-            let fmt = self.fmt();
-            match_panel(ui, plan, r.z, freq, &fmt);
-        }
+    }
+
+    fn matcher_section(&mut self, ui: &mut Ui) {
+        let solved = self.solved.clone();
+        let (z0, freq) = (self.z0, self.freq);
         if let Some(r) = solved.as_ref().filter(|r| !r.hybrid) {
             ui.add_space(8.0);
             let sweep: Vec<(f64, C64)> = self.sweep.iter().map(|p| (p.f * 1e6, p.z)).collect();
             self.matcher.show(ui, r.z, freq * 1e6, z0, &sweep);
         }
-        if let Some((r, near)) = solved.as_ref().and_then(|r| r.near.clone().map(|n| (r, n))) {
-            ui.add_space(8.0);
-            let up = scene.up();
-            let lam = self.lam();
-            self.near.show(ui, &near, up, lam, freq, r.dbi.unwrap_or(0.0));
-        }
-        ui.add_space(8.0);
+    }
+
+    fn modes_section(&mut self, ui: &mut Ui) {
+        let freq = self.freq;
         let geo = self.geometry();
         let key = self.key();
         let span = self.span / 100.0;

@@ -128,6 +128,18 @@ impl eframe::App for App {
                 &mut self.tab,
                 &[(Tab::Design, "design"), (Tab::Vna, "vna"), (Tab::Path, "path")],
             );
+            match self.tab {
+                Tab::Design => {
+                    tabs(ui, &mut self.design.page, &design::Page::TABS);
+                }
+                Tab::Path => {
+                    let mut mode = self.path.mode;
+                    if tabs(ui, &mut mode, &path::PathMode::TABS) {
+                        self.path.set_mode(mode);
+                    }
+                }
+                Tab::Vna => {}
+            }
         });
 
         egui::Panel::left("side").exact_size(330.0).show(ui, |ui| {
@@ -261,6 +273,14 @@ mod tests {
             settle(&mut h, 2500);
             h.render().unwrap().save(dir.join(format!("design-{id}.png"))).unwrap();
         }
+        if std::env::var("SHOT_PAGES").is_ok() {
+            for (page, name) in design::Page::TABS.map(|(p, _)| (p, p.key())) {
+                h.state_mut().design.page = page;
+                settle(&mut h, 2500);
+                h.render().unwrap().save(dir.join(format!("page-{name}.png"))).unwrap();
+            }
+            h.state_mut().design.page = design::Page::Build;
+        }
         h.state_mut().design.open_template_as_wires();
         h.state_mut().design.custom.ground =
             custom::Ground::Real(antenna_solver::geometry::RealGround::AVERAGE);
@@ -273,10 +293,14 @@ mod tests {
             settle(&mut h, 4000);
             h.render().unwrap().save(dir.join("design-nec.png")).unwrap();
         }
-        for (tab, name) in [(Tab::Vna, "vna"), (Tab::Path, "path")] {
-            h.state_mut().tab = tab;
-            settle(&mut h, 4000);
-            h.render().unwrap().save(dir.join(format!("{name}.png"))).unwrap();
+        h.state_mut().tab = Tab::Vna;
+        settle(&mut h, 2000);
+        h.render().unwrap().save(dir.join("vna.png")).unwrap();
+        h.state_mut().tab = Tab::Path;
+        for (mode, _) in path::PathMode::TABS {
+            h.state_mut().path.set_mode(mode);
+            settle(&mut h, 5000);
+            h.render().unwrap().save(dir.join(format!("path-{}.png", mode.key()))).unwrap();
         }
     }
 
@@ -303,6 +327,7 @@ mod tests {
             }
         }
         h.state_mut().tab = Tab::Path;
+        h.state_mut().path.set_mode(path::PathMode::Broadcast);
         if std::env::var("SHOT_PLANE").is_ok() {
             let p = &mut h.state_mut().path;
             p.target_asl = true;
@@ -339,6 +364,7 @@ mod tests {
         h.state_mut().design.design = antenna_designs::by_id(&id);
         settle(&mut h, 2500);
         let ctx = h.ctx.clone();
+        h.state_mut().design.page = design::Page::Fields;
         h.state_mut().design.find_modes(&ctx);
         settle(&mut h, 6000);
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/shots");

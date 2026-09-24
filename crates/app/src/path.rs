@@ -1,5 +1,5 @@
 use crate::charts::{self, GOLD, GREEN};
-use crate::map::MapView;
+use crate::map::{Camera, MapView};
 use crate::slot::PatternSlot;
 use crate::worker::Job;
 use antenna_terrain::coverage::{self, Coverage, Spec, Stage, stride_for};
@@ -103,7 +103,56 @@ enum CovMsg {
     Done(Box<Result<Coverage, String>>),
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PathMode {
+    Link,
+    Broadcast,
+    Sky,
+}
+
+impl PathMode {
+    pub const TABS: [(PathMode, &'static str); 3] = [
+        (PathMode::Link, "point to point"),
+        (PathMode::Broadcast, "broadcast coverage"),
+        (PathMode::Sky, "HF sky map"),
+    ];
+
+    pub fn key(self) -> &'static str {
+        match self {
+            PathMode::Link => "link",
+            PathMode::Broadcast => "broadcast",
+            PathMode::Sky => "sky",
+        }
+    }
+
+    pub fn from_key(k: &str) -> Option<Self> {
+        [PathMode::Link, PathMode::Broadcast, PathMode::Sky].into_iter().find(|m| m.key() == k)
+    }
+}
+
+fn latlon(ui: &mut Ui, at: &mut (f64, f64)) {
+    row(ui, "lat", |ui| {
+        ui.add(egui::DragValue::new(&mut at.0).range(-85.0..=85.0).speed(0.0005).max_decimals(5));
+    });
+    row(ui, "lon", |ui| {
+        ui.add(egui::DragValue::new(&mut at.1).range(-180.0..=180.0).speed(0.0005).max_decimals(5));
+    });
+}
+
+pub fn role_row(ui: &mut Ui, site_transmits: &mut bool) {
+    row(ui, "your site", |ui| {
+        choice(
+            ui,
+            "site-role",
+            site_transmits,
+            [(false, "receives".to_string()), (true, "transmits".to_string())],
+        );
+    });
+}
+
 pub struct PathTab {
+    pub mode: PathMode,
+    cams: [Option<Camera>; 3],
     pub site: (f64, f64),
     pub site_agl: f64,
     pub target: (f64, f64),
@@ -150,6 +199,8 @@ pub struct PathTab {
 impl Default for PathTab {
     fn default() -> Self {
         Self {
+            mode: PathMode::Link,
+            cams: Default::default(),
             site: (53.2707, -9.0568),
             site_agl: 10.0,
             target: (53.20, -9.60),
@@ -396,7 +447,10 @@ impl PathTab {
         self.refresh_overlay(ctx);
         self.map.poll(ctx);
         let key = self.key();
-        if key != self.fetched_for && self.pending.as_ref().is_none_or(|(k, _)| *k != key) {
+        if self.mode == PathMode::Link
+            && key != self.fetched_for
+            && self.pending.as_ref().is_none_or(|(k, _)| *k != key)
+        {
             self.pending = Some((key, Instant::now()));
         }
         if self.cov_waiting && self.cov_job.is_none() {
@@ -465,106 +519,125 @@ impl PathTab {
         self.map.camera.as_ref().map(|c| c.zoom).unwrap_or(0.0)
     }
 
+    pub fn set_mode(&mut self, mode: PathMode) {
+        if mode == self.mode {
+            return;
+        }
+        self.cams[self.mode as usize] = self.map.camera.take();
+        self.map.camera = self.cams[mode as usize].take().or_else(|| {
+            (mode == PathMode::Sky).then(|| {
+                let mid = LatLon::new(self.site.0, self.site.1)
+                    .interpolate(LatLon::new(self.target.0, self.target.1), 0.5);
+                Camera { center: (mid.lat, mid.lon), zoom: 2.3 }
+            })
+        });
+        self.mode = mode;
+        self.below = 0.0;
+    }
+
     pub fn sidebar(&mut self, ui: &mut Ui) {
-        section(ui, "antenna", "where it is mounted", |ui| {
-            row(ui, "lat", |ui| {
-                ui.add(
-                    egui::DragValue::new(&mut self.site.0)
-                        .range(-85.0..=85.0)
-                        .speed(0.0005)
-                        .max_decimals(5),
+        let mode = self.mode;
+        self.site_section(ui, mode != PathMode::Sky);
+        ui.add_space(8.0);
+        match mode {
+            PathMode::Link => {
+                self.pattern_section(ui);
+                ui.add_space(8.0);
+                self.far_section(ui);
+                ui.add_space(8.0);
+                self.link_section(ui);
+                ui.add_space(8.0);
+                self.model_section(ui);
+                ui.add_space(8.0);
+                self.clutter_section(ui);
+            }
+            PathMode::Broadcast => {
+                self.coverage_section(ui);
+                ui.add_space(8.0);
+                self.link_section(ui);
+                ui.add_space(8.0);
+                self.pattern_section(ui);
+                ui.add_space(8.0);
+                self.far_section(ui);
+                ui.add_space(8.0);
+                self.model_section(ui);
+                ui.add_space(8.0);
+                self.clutter_section(ui);
+            }
+            PathMode::Sky => {
+                self.pattern_section(ui);
+                ui.add_space(8.0);
+                self.far_section(ui);
+                ui.add_space(8.0);
+                self.hf.sidebar(ui, &mut self.site_transmits);
+            }
+        }
+    }
+
+    fn site_section(&mut self, ui: &mut Ui, height: bool) {
+        section(ui, "antenna", "your site", |ui| {
+            latlon(ui, &mut self.site);
+            if height {
+                row_help(
+                    ui,
+                    "height m",
+                    "Above the ground under it, not above sea level. The ground comes from the terrain model.",
+                    |ui| {
+                        let speed = (self.site_agl * 0.01).max(0.5);
+                        ui.add(
+                            egui::DragValue::new(&mut self.site_agl)
+                                .range(0.0..=3000.0)
+                                .speed(speed),
+                        );
+                    },
                 );
-            });
-            row(ui, "lon", |ui| {
-                ui.add(
-                    egui::DragValue::new(&mut self.site.1)
-                        .range(-180.0..=180.0)
-                        .speed(0.0005)
-                        .max_decimals(5),
-                );
-            });
-            row_help(
-                ui,
-                "height m",
-                "Above the ground under it, not above sea level. The ground comes from the terrain model.",
-                |ui| {
-                    let speed = (self.site_agl * 0.01).max(0.5);
-                    ui.add(
-                        egui::DragValue::new(&mut self.site_agl).range(0.0..=3000.0).speed(speed),
-                    );
-                },
-            );
+            }
         });
-        ui.add_space(8.0);
-        self.pattern_section(ui);
-        ui.add_space(8.0);
-        section(ui, "far end", "who it talks to", |ui| {
-            row(ui, "lat", |ui| {
-                ui.add(
-                    egui::DragValue::new(&mut self.target.0)
-                        .range(-85.0..=85.0)
-                        .speed(0.0005)
-                        .max_decimals(5),
-                );
-            });
-            row(ui, "lon", |ui| {
-                ui.add(
-                    egui::DragValue::new(&mut self.target.1)
-                        .range(-180.0..=180.0)
-                        .speed(0.0005)
-                        .max_decimals(5),
-                );
-            });
-            row(ui, "height m", |ui| {
-                let speed = (self.target_agl * 0.01).max(0.5);
-                ui.add(
-                    egui::DragValue::new(&mut self.target_agl).range(0.0..=20_000.0).speed(speed),
-                );
-            });
-            row_help(
-                ui,
-                "measured",
-                "Above sea level for aircraft altitude, above the ground under it for a mast or a ship. Past 3 km Longley-Rice no longer applies, so the path uses ITU-R P.528, the aeronautical model, or terrain diffraction where the ground blocks more.",
-                |ui| {
-                    choice(
-                        ui,
-                        "height-datum",
-                        &mut self.target_asl,
-                        [
-                            (false, "above ground".to_string()),
-                            (true, "above sea level".to_string()),
-                        ],
-                    );
-                },
-            );
-            row_help(
-                ui,
-                "k factor",
-                "Effective earth radius factor. 4/3 is standard atmosphere; lower it for sub-refraction, raise it for ducting.",
-                |ui| {
+    }
+
+    fn far_section(&mut self, ui: &mut Ui) {
+        let (title, sub) = match self.mode {
+            PathMode::Broadcast => ("receivers", "a station at every point on the map"),
+            _ => ("far end", "the station at the other end"),
+        };
+        section(ui, title, sub, |ui| {
+            if self.mode != PathMode::Broadcast {
+                latlon(ui, &mut self.target);
+            }
+            if self.mode != PathMode::Sky {
+                row(ui, "height m", |ui| {
+                    let speed = (self.target_agl * 0.01).max(0.5);
                     ui.add(
-                        egui::DragValue::new(&mut self.k)
-                            .range(0.5..=4.0)
-                            .speed(0.01)
-                            .max_decimals(3),
+                        egui::DragValue::new(&mut self.target_agl)
+                            .range(0.0..=20_000.0)
+                            .speed(speed),
                     );
-                },
-            );
-        });
-        ui.add_space(8.0);
-        section(ui, "their antenna", "toward you, at the arrival angle", |ui| {
+                });
+                row_help(
+                    ui,
+                    "measured",
+                    "Above sea level for aircraft altitude, above the ground under it for a mast or a ship. Past 3 km Longley-Rice no longer applies, so the path uses ITU-R P.528, the aeronautical model, or terrain diffraction where the ground blocks more.",
+                    |ui| {
+                        choice(
+                            ui,
+                            "height-datum",
+                            &mut self.target_asl,
+                            [
+                                (false, "above ground".to_string()),
+                                (true, "above sea level".to_string()),
+                            ],
+                        );
+                    },
+                );
+            }
+            ui.add_space(6.0);
+            Line::new().legend("their antenna").size(10.5).show(ui);
             self.far_pattern.ui(ui, "far-pattern", &mut self.far_dbi, self.freq, true);
         });
-        ui.add_space(8.0);
+    }
+
+    fn link_section(&mut self, ui: &mut Ui) {
         section(ui, "link", "budget, one way", |ui| {
-            row(ui, "the site", |ui| {
-                choice(
-                    ui,
-                    "site-role",
-                    &mut self.site_transmits,
-                    [(false, "receives".to_string()), (true, "transmits".to_string())],
-                );
-            });
             ui.horizontal_wrapped(|ui| {
                 for preset in &PRESETS {
                     if ui.button(action(preset.name)).clicked() {
@@ -572,6 +645,7 @@ impl PathTab {
                     }
                 }
             });
+            role_row(ui, &mut self.site_transmits);
             row(ui, "freq MHz", |ui| {
                 ui.add(
                     egui::DragValue::new(&mut self.freq)
@@ -592,31 +666,15 @@ impl PathTab {
             row(ui, &format!("{rx_who} sens dBm"), |ui| {
                 ui.add(egui::DragValue::new(&mut self.sens_dbm).range(-150.0..=0.0).speed(0.5));
             });
-            hint(
-                ui,
-                if self.site_transmits {
-                    "The map shows where a receiver at the far-end height would hear you."
-                } else {
-                    "The map shows where a transmitter at the far-end height would be heard by you. Path loss is the same both ways."
-                },
-            );
         });
-        ui.add_space(8.0);
-        self.coverage_section(ui);
-        ui.add_space(8.0);
-        self.model_section(ui);
-        ui.add_space(8.0);
-        self.clutter_section(ui);
-        ui.add_space(8.0);
-        self.hf.sidebar(ui);
     }
 
     fn pattern_section(&mut self, ui: &mut Ui) {
-        section(ui, "pattern", "your antenna toward every point", |ui| {
+        section(ui, "your antenna", "gain toward each point", |ui| {
             self.site_pattern.ui(ui, "site-pattern", &mut self.gain_dbi, self.freq, false);
             hint(
                 ui,
-                "Use the design tab's pattern, or load one exported from it, a NEC-2 output file, or a SPLAT! .az file with its .el beside it; files can also be dropped on the window. The gain is looked up toward each point's bearing and takeoff angle. NEC files carry no orientation, so +x is read as boresight and +z as up; fix it with tilt and roll.",
+                "From the design tab, or a file: exported from it, NEC-2 output, or SPLAT! .az with its .el. NEC files read +x as boresight and +z as up.",
             );
         });
     }
@@ -672,14 +730,33 @@ impl PathTab {
                     ui.add(egui::DragValue::new(&mut self.itm.n_0).range(250.0..=400.0).speed(1.0));
                 },
             );
-            row_help(
-                ui,
-                "ΔN units/km",
-                "Refractivity lapse rate through the lowest kilometre, from the ITU-R P.452 map at the middle of the path. About 40 to 50 over north-west Europe. Only the P.452 time table uses it.",
-                |ui| {
-                    ui.add(egui::DragValue::new(&mut self.delta_n).range(20.0..=100.0).speed(0.5));
-                },
-            );
+            if self.mode == PathMode::Link {
+                row_help(
+                    ui,
+                    "k factor",
+                    "Effective earth radius factor for the profile. 4/3 is standard atmosphere; lower it for sub-refraction, raise it for ducting.",
+                    |ui| {
+                        ui.add(
+                            egui::DragValue::new(&mut self.k)
+                                .range(0.5..=4.0)
+                                .speed(0.01)
+                                .max_decimals(3),
+                        );
+                    },
+                );
+            }
+            if self.mode == PathMode::Link {
+                row_help(
+                    ui,
+                    "ΔN units/km",
+                    "Refractivity lapse rate through the lowest kilometre, from the ITU-R P.452 map at the middle of the path. About 40 to 50 over north-west Europe. Only the P.452 time table uses it.",
+                    |ui| {
+                        ui.add(
+                            egui::DragValue::new(&mut self.delta_n).range(20.0..=100.0).speed(0.5),
+                        );
+                    },
+                );
+            }
             row_help(
                 ui,
                 "time %",
@@ -775,7 +852,11 @@ impl PathTab {
             }
             hint(
                 ui,
-                "Signal between the site and a station at the far-end height anywhere in the circle, by Longley-Rice along every bearing. Colours are the margin over rx sensitivity; clear means not heard.",
+                if self.site_transmits {
+                    "Where a receiver at the height above would hear you, by Longley-Rice along every bearing. Colours are the margin over their sensitivity; clear means not heard."
+                } else {
+                    "Where a transmitter at the height above would be heard by you, by Longley-Rice along every bearing. Colours are the margin over your sensitivity; clear means not heard."
+                },
             );
         });
     }
@@ -801,28 +882,31 @@ impl PathTab {
         let freq = self.freq;
         let site = self.site;
         let target = self.target;
-        let profile = self.profile.clone();
-        let analysis = self.analysis.as_ref().map(|a| a.2.clone());
+        let mode = self.mode;
+        let link = mode == PathMode::Link;
+        let profile = self.profile.clone().filter(|_| link);
+        let analysis = self.analysis.as_ref().map(|a| a.2.clone()).filter(|_| link);
         let horizon_m =
             profile.as_ref().map(|p| radio_horizon(p.antenna_a(), self.k)).unwrap_or(0.0);
         let clear = analysis.as_ref().is_some_and(|a| a.line_of_sight);
         let overlay = self
             .coverage
             .as_ref()
-            .filter(|_| self.show_coverage)
+            .filter(|_| self.show_coverage && mode == PathMode::Broadcast)
             .zip(self.overlay.as_ref())
             .map(|(c, (_, t))| (c.spec.bounds(), c.spec.radius, t.id()));
         let opacity = self.opacity;
-        let lobe: Option<Vec<(f64, f64)>> = self.site_pattern.pattern.as_ref().map(|_| {
-            let g: Vec<f64> = (0..=180).map(|i| self.site_gain(i as f64 * 2.0, 0.0)).collect();
-            let peak = g.iter().copied().fold(f64::NEG_INFINITY, f64::max);
-            g.iter()
-                .enumerate()
-                .map(|(i, v)| (i as f64 * 2.0, ((v - peak + 30.0) / 30.0).clamp(0.0, 1.0)))
-                .collect()
-        });
+        let lobe: Option<Vec<(f64, f64)>> =
+            self.site_pattern.pattern.as_ref().filter(|_| mode != PathMode::Sky).map(|_| {
+                let g: Vec<f64> = (0..=180).map(|i| self.site_gain(i as f64 * 2.0, 0.0)).collect();
+                let peak = g.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+                g.iter()
+                    .enumerate()
+                    .map(|(i, v)| (i as f64 * 2.0, ((v - peak + 30.0) / 30.0).clamp(0.0, 1.0)))
+                    .collect()
+            });
         let height = (ui.clip_rect().bottom() - ui.cursor().top() - self.below - 6.0).max(320.0);
-        {
+        if mode == PathMode::Sky {
             let mut hf = std::mem::take(&mut self.hf);
             let (tx, rx) = if self.site_transmits { (site, target) } else { (target, site) };
             let site_gain = |az: f64, el: f64| self.site_gain(az, el);
@@ -847,7 +931,9 @@ impl PathTab {
         let hf_ctx = ui.ctx().clone();
         let hf = &mut self.hf;
         let drawn = self.map.show(ui, height, site, |c| {
-            hf.draw_area(&hf_ctx, c, opacity);
+            if mode == PathMode::Sky {
+                hf.draw_area(&hf_ctx, c, opacity);
+            }
             if let Some(((s, w, n, e), radius, tex)) = overlay {
                 c.p.image(
                     tex,
@@ -877,8 +963,14 @@ impl PathTab {
                     .collect();
                 c.p.add(Shape::line(pts, Stroke::new(1.6, GOLD)));
             }
-            let colour = if clear { GREEN } else { FAULT };
-            c.p.line_segment([a, b], Stroke::new(2.0, colour));
+            if mode != PathMode::Broadcast {
+                let colour = match (mode, clear) {
+                    (PathMode::Sky, _) => GOLD,
+                    (_, true) => GREEN,
+                    _ => FAULT,
+                };
+                c.p.line_segment([a, b], Stroke::new(2.0, colour));
+            }
             if horizon_m > 0.0 {
                 let centre = LatLon::new(site.0, site.1);
                 let ring: Vec<Pos2> = (0..=90)
@@ -897,7 +989,6 @@ impl PathTab {
             }
             c.p.circle_filled(a, 6.0, READOUT);
             c.p.circle_stroke(a, 9.0, Stroke::new(1.0, READOUT));
-            c.p.circle_filled(b, 5.0, TRACE);
             c.p.text(
                 a + Vec2::new(10.0, -10.0),
                 Align2::LEFT_BOTTOM,
@@ -905,20 +996,25 @@ impl PathTab {
                 theme::legend_font(11.0),
                 READOUT,
             );
-            c.p.text(
-                b + Vec2::new(10.0, -10.0),
-                Align2::LEFT_BOTTOM,
-                "far end",
-                theme::legend_font(11.0),
-                TRACE,
-            );
+            if mode != PathMode::Broadcast {
+                c.p.circle_filled(b, 5.0, TRACE);
+            }
+            if mode != PathMode::Broadcast && (b - a).length() > 60.0 {
+                c.p.text(
+                    b + Vec2::new(10.0, -10.0),
+                    Align2::LEFT_BOTTOM,
+                    "far end",
+                    theme::legend_font(11.0),
+                    TRACE,
+                );
+            }
         });
         let map_bottom = drawn.response.rect.bottom();
         if drawn.response.secondary_clicked() {
             self.picked = drawn.pointer;
         }
         if let (Some(cov), Some(ll), Some(pos), true) = (
-            self.coverage.as_ref().filter(|_| self.show_coverage),
+            self.coverage.as_ref().filter(|_| self.show_coverage && mode == PathMode::Broadcast),
             drawn.pointer,
             drawn.response.hover_pos(),
             drawn.response.hovered(),
@@ -953,14 +1049,20 @@ impl PathTab {
                     self.site = ll;
                     ui.close();
                 }
-                if ui.button(action("put the far end here")).clicked() {
+                if mode != PathMode::Broadcast
+                    && ui.button(action("put the far end here")).clicked()
+                {
                     self.target = ll;
                     ui.close();
                 }
             }
         });
         Line::new()
-            .note("The dashed ring is the radio horizon to sea level from the antenna. Hover the coverage for the level at any point.")
+            .note(match mode {
+                PathMode::Link => "The line is green when the path is in sight, and the dashed ring is the radio horizon to sea level. Right-click the map to move either end.",
+                PathMode::Broadcast => "Hover the coverage for the level at any point. The dashed ring is the radio horizon to sea level. Right-click the map to move the antenna.",
+                PathMode::Sky => "Right-click the map to move either end.",
+            })
             .size(10.5)
             .show(ui);
         ui.add_space(8.0);
@@ -977,7 +1079,7 @@ impl PathTab {
                 "fetching Copernicus GLO-30 tiles, about 25 MB each",
             );
         }
-        if self.job.is_some() {
+        if self.job.is_some() && link {
             progress(
                 ui,
                 "terrain",
@@ -985,6 +1087,10 @@ impl PathTab {
                 None,
                 "fetching Copernicus GLO-30 tiles, about 25 MB each the first time",
             );
+        }
+        if mode == PathMode::Sky {
+            self.hf.central(ui);
+            return map_bottom;
         }
         let (Some(p), Some(an)) = (profile, analysis) else {
             return map_bottom;
@@ -1004,7 +1110,7 @@ impl PathTab {
             ui,
             Some(if an.line_of_sight { OK } else { FAULT }),
             |ui| {
-                Line::new().legend("path").show(ui);
+                Line::new().legend("link budget").show(ui);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     Line::new().note(format!("{freq} MHz")).size(10.5).elided(ui);
                 });
@@ -1039,7 +1145,7 @@ impl PathTab {
                     }
                 });
                 ui.add_space(6.0);
-                let items = vec![
+                let terrain = vec![
                     ("bearing", format!("{:.1}°", an.bearing), TRACE),
                     (
                         "line of sight",
@@ -1055,23 +1161,29 @@ impl PathTab {
                         },
                         if an.fresnel_clear { OK } else { WARN },
                     ),
+                    ("radio horizon", format!("{:.1} km", horizon_m / 1000.0), TRACE),
+                    ("ground at site", format!("{:.0} m", p.samples[0].ground), TRACE),
+                ];
+                let losses = vec![
                     ("free space", format!("{:.1} dB", an.fspl_db), TRACE),
+                    ("terrain", format!("{:.1} dB", loss - an.fspl_db), TRACE),
                     ("clutter", format!("{:.1} dB", self.clutter_db(None)), TRACE),
-                    ("beyond free space", format!("{:.1} dB", loss - an.fspl_db), TRACE),
                     match &an.itm {
-                        Ok(r) => ("mode", r.mode.label().to_string(), TRACE),
+                        Ok(r) => ("by", r.mode.label().to_string(), TRACE),
                         Err(_) if an.airborne => {
                             ("model", "ITU-R P.528, aeronautical".to_string(), TRACE)
                         }
                         Err(e) => ("model", e.to_string(), FAULT),
                     },
-                    ("takeoff", format!("{:+.2}°", an.takeoff_deg), TRACE),
+                ];
+                let antennas = vec![
+                    ("leaves you at", format!("{:+.2}°", an.takeoff_deg), TRACE),
                     (
                         "your gain",
                         format!("{:+.1} dBi", self.site_gain(an.bearing, an.takeoff_deg)),
                         TRACE,
                     ),
-                    ("arrival", format!("{:+.2}°", an.arrival_deg), TRACE),
+                    ("arrives at", format!("{:+.2}°", an.arrival_deg), TRACE),
                     (
                         "their gain",
                         format!(
@@ -1080,15 +1192,19 @@ impl PathTab {
                         ),
                         TRACE,
                     ),
-                    ("horizon", format!("{:.1} km", horizon_m / 1000.0), TRACE),
-                    ("site ground", format!("{:.0} m", p.samples[0].ground), TRACE),
                 ];
-                readouts(ui, &items);
+                for (title, items) in [
+                    ("terrain", terrain),
+                    ("path loss, Longley-Rice", losses),
+                    ("antennas", antennas),
+                ] {
+                    ui.add_space(6.0);
+                    Line::new().legend(title).size(10.5).show(ui);
+                    readouts(ui, &items);
+                }
             },
         );
         self.p452_card(ui, &p, &an);
-        ui.add_space(8.0);
-        self.hf.central(ui);
         map_bottom
     }
 
@@ -1126,8 +1242,8 @@ impl PathTab {
         ui.add_space(8.0);
         section(
             ui,
-            "time variability",
-            "ITU-R P.452, ducting, layer reflection and troposcatter",
+            "how often",
+            "path loss and margin not exceeded for a share of the time, ITU-R P.452",
             |ui| {
                 let mut items = Vec::new();
                 for (t, r) in rows {

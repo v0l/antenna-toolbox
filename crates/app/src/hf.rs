@@ -243,11 +243,12 @@ pub struct Ends<'a> {
 
 impl HfPanel {
     pub fn new() -> Self {
-        HfPanel { map_freq: 14.15, map_hour: 13, ..Default::default() }
+        HfPanel { map_freq: 14.15, map_hour: 13, show_area: true, ..Default::default() }
     }
 
-    pub fn sidebar(&mut self, ui: &mut Ui) {
+    pub fn sidebar(&mut self, ui: &mut Ui, site_transmits: &mut bool) {
         section(ui, "HF skywave", "ITU-R P.533, month median", |ui| {
+            crate::path::role_row(ui, site_transmits);
             let s = &mut self.setup;
             row(ui, "month", |ui| {
                 let names = [
@@ -295,26 +296,21 @@ impl HfPanel {
                     },
                 );
             });
-            ui.horizontal(|ui| {
-                ui.label(legend("map MHz"));
+        });
+        ui.add_space(8.0);
+        section(ui, "sky map", "reliability from the transmitter", |ui| {
+            row(ui, "map MHz", |ui| {
                 ui.add(egui::DragValue::new(&mut self.map_freq).range(1.6..=30.0).speed(0.05));
-                ui.label(legend("UTC"));
+            });
+            row(ui, "UTC hour", |ui| {
                 ui.add(egui::DragValue::new(&mut self.map_hour).range(1..=24));
             });
-            ui.horizontal(|ui| {
-                if self.area_job.is_some() {
-                    Line::new().note("mapping…").size(10.5).show(ui);
-                } else if ui.button(action("map reliability")).clicked() {
-                    self.show_area = true;
-                    self.area = None;
-                }
-                if self.area.is_some() && toggle(ui, "show", self.show_area).clicked() {
-                    self.show_area = !self.show_area;
-                }
-            });
+            if self.area_job.is_some() {
+                progress(ui, "sky map", 0.0, None, "tracing every point on the globe");
+            }
             hint(
                 ui,
-                "The map shows the chance of meeting the needed SNR from the transmitting end to anywhere, at the chosen hour and frequency. Zoom the map right out to see it.",
+                "The chance of meeting the needed SNR from the transmitting end to anywhere, at that hour and frequency, into an isotropic antenna.",
             );
         });
     }
