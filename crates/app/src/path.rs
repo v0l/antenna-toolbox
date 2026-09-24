@@ -4,6 +4,7 @@ use crate::slot::PatternSlot;
 use crate::worker::Job;
 use antenna_terrain::coverage::{self, Coverage, Spec, Stage, stride_for};
 use antenna_terrain::itm::{Climate, Params};
+use antenna_terrain::p2108::{self, Clutter};
 use antenna_terrain::path::{C, fresnel_radius};
 use antenna_terrain::{Analysis, Dem, Endpoint, LatLon, Profile, analyse, radio_horizon};
 use egui::{
@@ -113,6 +114,9 @@ pub struct PathTab {
     pub site_transmits: bool,
     pub itm: Params,
     pub radius_km: f64,
+    pub site_clutter: Option<Clutter>,
+    pub far_clutter: Option<Clutter>,
+    pub street_m: f64,
     pub show_coverage: bool,
     pub opacity: f32,
     cov_job: Option<Job<CovMsg>>,
@@ -157,6 +161,9 @@ impl Default for PathTab {
                 ..Params::default()
             },
             radius_km: 60.0,
+            site_clutter: None,
+            far_clutter: None,
+            street_m: 27.0,
             show_coverage: true,
             opacity: 0.75,
             cov_job: None,
@@ -293,12 +300,31 @@ impl PathTab {
     }
 
     fn budget(&self, loss: f64, site_gain: f64, far_gain: f64) -> f64 {
-        self.tx_dbm + far_gain + site_gain - self.cable_db - loss
+        self.tx_dbm + far_gain + site_gain - self.cable_db - loss - self.clutter_db(None)
+    }
+
+    pub fn clutter_db(&self, d_km: Option<f64>) -> f64 {
+        let f = self.freq / 1000.0;
+        let end = |c: Option<Clutter>, h: f64| {
+            let Some(c) = c else {
+                return 0.0;
+            };
+            if f <= 3.0 {
+                p2108::height_gain_correction(f, h.max(0.1), self.street_m, c.height(), c)
+                    .unwrap_or(0.0)
+            } else {
+                p2108::terrestrial(f, d_km.unwrap_or(2.0).max(0.25), self.itm.situation)
+                    .unwrap_or(0.0)
+            }
+        };
+        let far = if self.target_asl { 0.0 } else { end(self.far_clutter, self.target_agl) };
+        end(self.site_clutter, self.site_agl) + far
     }
 
     fn overlay_key(&self) -> String {
         format!(
-            "{}|{}|{}|{}|{}|{}|{}",
+            "{}|{}|{}|{}|{}|{}|{}|{}",
+            self.clutter_db(None),
             self.tx_dbm,
             self.far_dbi,
             self.gain_dbi,
@@ -568,6 +594,8 @@ impl PathTab {
         self.coverage_section(ui);
         ui.add_space(8.0);
         self.model_section(ui);
+        ui.add_space(8.0);
+        self.clutter_section(ui);
     }
 
     fn pattern_section(&mut self, ui: &mut Ui) {
@@ -648,6 +676,36 @@ impl PathTab {
                         egui::DragValue::new(&mut self.itm.situation).range(1.0..=99.0).speed(1.0),
                     );
                 },
+            );
+        });
+    }
+
+    fn clutter_section(&mut self, ui: &mut Ui) {
+        section(ui, "clutter", "ITU-R P.2108, buildings and trees at each end", |ui| {
+            let pick = |ui: &mut Ui, id: &str, v: &mut Option<Clutter>| {
+                let mut opts = vec![(None, "none".to_string())];
+                opts.extend(
+                    Clutter::ALL.map(|c| (Some(c), format!("{} ({:.0} m)", c.label(), c.height()))),
+                );
+                choice(ui, id, v, opts);
+            };
+            row_help(
+                ui,
+                "your end",
+                "Only set this if the antenna sits down among buildings or trees that the terrain model does not show. Copernicus is a surface model, so it already includes roofs and canopy along the path.",
+                |ui| pick(ui, "site-clutter", &mut self.site_clutter),
+            );
+            row(ui, "far end", |ui| pick(ui, "far-clutter", &mut self.far_clutter));
+            row(ui, "street m", |ui| {
+                ui.add(egui::DragValue::new(&mut self.street_m).range(5.0..=200.0).speed(0.5));
+            });
+            let db = self.clutter_db(None);
+            if db != 0.0 {
+                note(ui, format!("{db:.1} dB added to every path."), VALUE);
+            }
+            hint(
+                ui,
+                "Up to 3 GHz this is the height-gain correction for an antenna below the clutter height, which depends on how far below it sits. Above 3 GHz it is the statistical terrestrial model at your confidence %.",
             );
         });
     }
@@ -952,6 +1010,7 @@ impl PathTab {
                         if an.fresnel_clear { OK } else { WARN },
                     ),
                     ("free space", format!("{:.1} dB", an.fspl_db), TRACE),
+                    ("clutter", format!("{:.1} dB", self.clutter_db(None)), TRACE),
                     ("beyond free space", format!("{:.1} dB", loss - an.fspl_db), TRACE),
                     match &an.itm {
                         Ok(r) => ("mode", r.mode.label().to_string(), TRACE),

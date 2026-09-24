@@ -37,6 +37,9 @@ pub fn snapshot(app: &App) -> BTreeMap<&'static str, String> {
     m.insert("itm_time", p.itm.time.to_string());
     m.insert("itm_situation", p.itm.situation.to_string());
     m.insert("radius_km", p.radius_km.to_string());
+    m.insert("site_clutter", p.site_clutter.map_or(0, |c| c as u8).to_string());
+    m.insert("far_clutter", p.far_clutter.map_or(0, |c| c as u8).to_string());
+    m.insert("street_m", p.street_m.to_string());
     for (tag, slot) in [("", &p.site_pattern), ("far_", &p.far_pattern)] {
         m.insert(leak(format!("{tag}heading")), slot.mount.heading.to_string());
         m.insert(leak(format!("{tag}tilt")), slot.mount.tilt.to_string());
@@ -115,6 +118,14 @@ pub fn load(app: &mut App) {
     num("itm_time", &mut p.itm.time);
     num("itm_situation", &mut p.itm.situation);
     num("radius_km", &mut p.radius_km);
+    num("street_m", &mut p.street_m);
+    let clutter = |k: &str| {
+        m.get(k)
+            .and_then(|v| v.parse::<u8>().ok())
+            .and_then(antenna_terrain::p2108::Clutter::from_code)
+    };
+    p.site_clutter = clutter("site_clutter");
+    p.far_clutter = clutter("far_clutter");
     for (tag, slot) in [("", &mut p.site_pattern), ("far_", &mut p.far_pattern)] {
         num(&format!("{tag}heading"), &mut slot.mount.heading);
         num(&format!("{tag}tilt"), &mut slot.mount.tilt);
