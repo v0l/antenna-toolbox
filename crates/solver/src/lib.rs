@@ -1,4 +1,5 @@
 pub mod analysis;
+pub mod cma;
 pub mod geometry;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod gpu;
@@ -32,6 +33,7 @@ pub mod rational;
 pub mod solve;
 pub mod sommerfeld;
 pub mod surface;
+pub mod symeig;
 pub mod units;
 pub mod vec;
 

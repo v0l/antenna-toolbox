@@ -4,6 +4,7 @@ mod design;
 mod drawing;
 mod map;
 mod matcher;
+mod modes;
 mod nearfield;
 mod path;
 mod rich;
@@ -314,6 +315,26 @@ mod tests {
         h.hover_at(egui::pos2(700.0, 330.0));
         settle(&mut h, 3000);
         h.render().unwrap().save(dir.join("coverage.png")).unwrap();
+    }
+
+    #[test]
+    #[ignore = "renders characteristic modes to target/shots"]
+    fn render_modes() {
+        let tall = std::env::var("SHOT_H").ok().and_then(|v| v.parse().ok()).unwrap_or(3600.0);
+        let mut h =
+            Harness::builder().with_size(egui::vec2(1400.0, tall)).wgpu().build_eframe(|cc| {
+                egui_bench::install(&cc.egui_ctx);
+                App::new()
+            });
+        let id = std::env::var("SHOT_DESIGNS").unwrap_or_else(|_| "yagi".into());
+        h.state_mut().design.design = antenna_designs::by_id(&id);
+        settle(&mut h, 2500);
+        let ctx = h.ctx.clone();
+        h.state_mut().design.find_modes(&ctx);
+        settle(&mut h, 6000);
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/shots");
+        std::fs::create_dir_all(&dir).unwrap();
+        h.render().unwrap().save(dir.join(format!("modes-{id}.png"))).unwrap();
     }
 
     fn resonant(centre: f64, reactance: f64) -> Vec<antenna_vna::Point> {

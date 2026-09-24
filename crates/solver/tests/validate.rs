@@ -308,3 +308,55 @@ fn near_fields_match_nec2_ne_and_nh_cards() {
         assert!((f.h_peak() / h - 1.0).abs() < 0.01, "H at z {z}: {} vs {h}", f.h_peak());
     }
 }
+
+#[test]
+fn characteristic_modes_rebuild_the_driven_solution() {
+    for deck in [
+        "GW 1 21 0 0 -0.5 0 0 0.5 0.001\nGE 0\nEX 0 1 11 0 1 0\nFR 0 1 0 0 142 0\nEN\n",
+        "GW 1 21 0 -0.52 0 0 0.52 0 0.002\nGW 2 21 0.3 -0.49 0 0.3 0.49 0 0.002\nGW 3 21 0.6 -0.46 0 0.6 0.46 0 0.002\nGE 0\nEX 0 2 11 0 1 0\nFR 0 1 0 0 144 0\nEN\n",
+        "GW 1 21 -0.5 0 3 0.5 0 3 0.001\nGE 1\nGN 1\nEX 0 1 11 0 1 0\nFR 0 1 0 0 142 0\nEN\n",
+    ] {
+        let r = antenna_solver::nec::import(deck).unwrap();
+        let lam = 299_792.458 / r.freq_mhz.unwrap();
+        let model = model_for(&r.geo, lam, 2.0, 900);
+        let direct = solve_at(&model, lam, false).z;
+        let modes = antenna_solver::cma::modes(&model, 2.0 * PI / lam, 6);
+        let p_modal: f64 = modes.iter().map(|m| m.weight.norm_sqr()).sum::<f64>() / 2.0;
+        let p_direct = direct.inv().re / 2.0;
+        eprintln!("P modal {p_modal:.6e} direct {p_direct:.6e}");
+        assert!((p_modal / p_direct - 1.0).abs() < 0.01, "{p_modal} vs {p_direct}");
+        assert!(modes[0].significance() > 0.5, "{}", modes[0].significance());
+        if deck.starts_with("GW 1 21 0 0 -0.5") {
+            for (m, want) in modes.iter().zip([-0.12795, -195.599, -14017.6]) {
+                assert!((m.lambda / want - 1.0).abs() < 1e-3, "{} vs {want}", m.lambda);
+            }
+        }
+    }
+}
+
+#[test]
+fn a_dipoles_first_mode_resonates_where_the_driven_dipole_does() {
+    let lam = 1000.0;
+    let lambda1 = |len: f64| {
+        let geo =
+            WireGeometry::new(vec![vec![[0.0, -len / 2.0, 0.0], [0.0, len / 2.0, 0.0]]], [0.0; 3]);
+        let m = build_model(&geo, lam, 2.0, 10_000);
+        let modes = antenna_solver::cma::modes(&m, K, 4);
+        let z = solve_cpu(&m, K)[m.feed].inv();
+        (modes[0].lambda, z.im)
+    };
+    let (mut lo, mut hi) = (400.0, 520.0);
+    for _ in 0..30 {
+        let mid = (lo + hi) / 2.0;
+        if lambda1(mid).0 > 0.0 { hi = mid } else { lo = mid }
+    }
+    let modal = (lo + hi) / 2.0;
+    let (mut lo, mut hi) = (400.0, 520.0);
+    for _ in 0..30 {
+        let mid = (lo + hi) / 2.0;
+        if lambda1(mid).1 > 0.0 { hi = mid } else { lo = mid }
+    }
+    let driven = (lo + hi) / 2.0;
+    eprintln!("J1 resonant at {modal:.1} mm, driven at {driven:.1} mm, of λ {lam}");
+    assert!((modal / driven - 1.0).abs() < 0.02);
+}

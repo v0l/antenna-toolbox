@@ -167,6 +167,7 @@ pub struct DesignTab {
     view: View,
     matcher: crate::matcher::Matcher,
     near: crate::nearfield::NearPanel,
+    modes: crate::modes::ModesPanel,
     edits: HashMap<String, String>,
     note: Option<String>,
     scale_key: String,
@@ -209,6 +210,7 @@ impl Default for DesignTab {
             view: View::default(),
             matcher: Default::default(),
             near: Default::default(),
+            modes: Default::default(),
             edits: HashMap::new(),
             note: None,
             scale_key: String::new(),
@@ -517,6 +519,13 @@ impl DesignTab {
                 h.send(Msg::Gain(gains.clone()));
             }
         }));
+    }
+
+    #[cfg(test)]
+    pub fn find_modes(&mut self, ctx: &egui::Context) {
+        let geo = self.geometry();
+        let key = self.key();
+        self.modes.start(ctx, geo, self.freq, self.span / 100.0, self.wire, key);
     }
 
     fn start_optimise(&mut self, ctx: &egui::Context, params: &[Tunable]) {
@@ -1263,6 +1272,11 @@ impl DesignTab {
             let lam = self.lam();
             self.near.show(ui, &near, up, lam, freq, r.dbi.unwrap_or(0.0));
         }
+        ui.add_space(8.0);
+        let geo = self.geometry();
+        let key = self.key();
+        let span = self.span / 100.0;
+        self.modes.show(ui, &geo, freq, span, self.wire, &key);
     }
 
     fn tune_panel(&mut self, ui: &mut Ui, params: &[Tunable]) {
