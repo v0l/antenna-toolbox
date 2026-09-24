@@ -154,6 +154,7 @@ pub struct DesignTab {
     pending: Option<(String, Instant)>,
     view: View,
     matcher: crate::matcher::Matcher,
+    near: crate::nearfield::NearPanel,
     edits: HashMap<String, String>,
     note: Option<String>,
     scale_key: String,
@@ -190,6 +191,7 @@ impl Default for DesignTab {
             pending: None,
             view: View::default(),
             matcher: Default::default(),
+            near: Default::default(),
             edits: HashMap::new(),
             note: None,
             scale_key: String::new(),
@@ -1113,6 +1115,12 @@ impl DesignTab {
             ui.add_space(8.0);
             let sweep: Vec<(f64, C64)> = self.sweep.iter().map(|p| (p.f * 1e6, p.z)).collect();
             self.matcher.show(ui, r.z, freq * 1e6, z0, &sweep);
+        }
+        if let Some((r, near)) = solved.as_ref().and_then(|r| r.near.clone().map(|n| (r, n))) {
+            ui.add_space(8.0);
+            let up = scene.up();
+            let lam = self.lam();
+            self.near.show(ui, &near, up, lam, freq, r.dbi.unwrap_or(0.0));
         }
     }
 

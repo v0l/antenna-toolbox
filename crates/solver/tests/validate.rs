@@ -276,3 +276,35 @@ fn sommerfeld_ground_matches_nec2_gn2_close_to_the_ground() {
         assert!((z - nec).norm() < 3.0, "nec2 GN 2 {nec}, ours {z}");
     }
 }
+
+fn near_of(deck: &str) -> std::sync::Arc<antenna_solver::near::NearSource> {
+    let r = antenna_solver::nec::import(deck).unwrap();
+    let lam = 299_792.458 / r.freq_mhz.unwrap();
+    solve_at(&model_for(&r.geo, lam, 2.0, 5000), lam, true).near.unwrap()
+}
+
+#[test]
+fn near_fields_match_nec2_ne_and_nh_cards() {
+    let free =
+        near_of("GW 1 21 0 0 -0.5 0 0 0.5 0.001\nGE 0\nEX 0 1 11 0 1 0\nFR 0 1 0 0 142 0\nEN\n");
+    let cases = [
+        ([0.05, 0.0, -0.6], 4.0334, 8.1924e-4),
+        ([0.05, 0.0, -0.3], 13.536, 2.7956e-2),
+        ([0.2, 0.0, 0.1], 1.8815, 1.0740e-2),
+        ([1.0, 0.0, 0.1], 0.73122, 2.1820e-3),
+    ];
+    for (p, e, h) in cases {
+        let f = free.at(p.map(|v| v * 1000.0));
+        assert!((f.e_peak() / e - 1.0).abs() < 0.01, "E at {p:?}: {} vs {e}", f.e_peak());
+        assert!((f.h_peak() / h - 1.0).abs() < 0.01, "H at {p:?}: {} vs {h}", f.h_peak());
+    }
+    let pec = near_of(
+        "GW 1 21 -0.5 0 3 0.5 0 3 0.001\nGE 1\nGN 1\nEX 0 1 11 0 1 0\nFR 0 1 0 0 142 0\nEN\n",
+    );
+    for (z, e, h) in [(1.0, 0.21765, 1.4557e-3), (3.0, 2.8872, 7.0302e-3), (5.0, 0.3397, 9.3111e-4)]
+    {
+        let f = pec.at([300.0, 200.0, z * 1000.0]);
+        assert!((f.e_peak() / e - 1.0).abs() < 0.01, "E at z {z}: {} vs {e}", f.e_peak());
+        assert!((f.h_peak() / h - 1.0).abs() < 0.01, "H at z {z}: {} vs {h}", f.h_peak());
+    }
+}

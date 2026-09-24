@@ -23,6 +23,7 @@ pub mod gpu {
 }
 pub mod linalg;
 pub mod mom;
+pub mod near;
 pub mod nec;
 pub mod po;
 pub mod polarisation;

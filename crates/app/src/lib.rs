@@ -4,6 +4,7 @@ mod design;
 mod drawing;
 mod map;
 mod matcher;
+mod nearfield;
 mod path;
 mod rich;
 mod slot;

@@ -48,6 +48,7 @@ pub struct SolveResult {
     pub pol: Option<Ellipse>,
     pub hybrid: bool,
     pub stubby: usize,
+    pub near: Option<Arc<crate::near::NearSource>>,
 }
 
 impl SolveResult {
@@ -104,6 +105,7 @@ pub fn solve_at(model: &Model, lam: f64, want_pattern: bool) -> SolveResult {
         pol: None,
         hybrid: false,
         stubby: model.segs.iter().filter(|s| s.thinned).count(),
+        near: None,
     };
 
     if want_pattern {
@@ -139,6 +141,7 @@ pub fn solve_at(model: &Model, lam: f64, want_pattern: bool) -> SolveResult {
                         .iter()
                         .map(|&(b, v)| (v * model.source_current(&coeffs, b, k).conj()).re)
                         .sum::<f64>());
+            result.near = Some(Arc::new(crate::near::NearSource::new(model, &coeffs, k, p_in)));
             if p_in > 0.0 {
                 let eff = (radiated_power(&*pattern, k) / p_in).min(1.0);
                 result.efficiency = Some(eff);

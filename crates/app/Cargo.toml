@@ -13,6 +13,7 @@ antenna-designs.workspace = true
 antenna-vna.workspace = true
 antenna-terrain.workspace = true
 antenna-rf.workspace = true
+rayon.workspace = true
 egui.workspace = true
 eframe.workspace = true
 egui_bench.workspace = true
@@ -29,7 +30,6 @@ wasm-bindgen.workspace = true
 wasm-bindgen-futures.workspace = true
 wasm-bindgen-rayon.workspace = true
 parking_lot_core = { version = "0.9", features = ["nightly"] }
-rayon.workspace = true
 js-sys.workspace = true
 web-sys.workspace = true
 

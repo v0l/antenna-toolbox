@@ -1,5 +1,6 @@
 pub mod cable;
 pub mod eseries;
+pub mod exposure;
 pub mod network;
 pub mod synth;
 
