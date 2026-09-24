@@ -12,6 +12,7 @@ antenna-solver.workspace = true
 antenna-designs.workspace = true
 antenna-vna.workspace = true
 antenna-terrain.workspace = true
+antenna-rf.workspace = true
 egui.workspace = true
 eframe.workspace = true
 egui_bench.workspace = true

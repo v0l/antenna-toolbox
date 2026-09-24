@@ -3,6 +3,7 @@ mod custom;
 mod design;
 mod drawing;
 mod map;
+mod matcher;
 mod path;
 mod rich;
 mod slot;
@@ -344,10 +345,38 @@ mod tests {
     }
 
     #[test]
+    fn a_cable_is_taken_out_of_the_reading() {
+        let run = antenna_rf::cable::Run {
+            cable: antenna_rf::cable::cable("RG-213").unwrap(),
+            len_m: 7.3,
+        };
+        let through: Vec<antenna_vna::Point> = resonant(880e6, 900.0)
+            .into_iter()
+            .map(|p| {
+                let z = run.toward_source(p.z(50.0), p.freq);
+                antenna_vna::Point { s11: (z - 50.0) / (z + 50.0), ..p }
+            })
+            .collect();
+        let mut v = vna::VnaTab::default();
+        v.inject(through);
+        v.deembed = vna::Deembed::Cable;
+        v.cable = 4;
+        v.cable_m = 7.3;
+        let r = vna::resonance(&v.measured(), 50.0).unwrap();
+        assert!((r.freq - 880e6).abs() < 0.05e6, "{}", r.freq);
+        assert!((r.z.re - 62.0).abs() < 0.1, "{}", r.z);
+    }
+
+    #[test]
     #[ignore = "renders a synthetic sweep to target/shots"]
     fn render_vna_display() {
+        let tall = std::env::var("SHOT_H").ok().and_then(|v| v.parse().ok()).unwrap_or(1000.0);
+        let cable = antenna_rf::cable::Run {
+            cable: antenna_rf::cable::cable("RG-58").unwrap(),
+            len_m: 1.5,
+        };
         let mut h =
-            Harness::builder().with_size(egui::vec2(1600.0, 1000.0)).wgpu().build_eframe(|cc| {
+            Harness::builder().with_size(egui::vec2(1600.0, tall)).wgpu().build_eframe(|cc| {
                 egui_bench::install(&cc.egui_ctx);
                 App::new()
             });
@@ -356,11 +385,15 @@ mod tests {
                 let f = 800e6 + i as f64 * 0.25e6;
                 let w = f / 880e6;
                 let z = antenna_vna::C64::new(62.0, 900.0 * (w - 1.0 / w));
+                let z = cable.toward_source(z, f);
                 let s11 = (z - 50.0) / (z + 50.0);
                 antenna_vna::Point { freq: f, s11, s21: None }
             })
             .collect();
         h.state_mut().vna.target = 868.0;
+        h.state_mut().vna.deembed = vna::Deembed::Cable;
+        h.state_mut().vna.cable = 2;
+        h.state_mut().vna.cable_m = 1.5;
         h.state_mut().vna.inject(pts);
         h.state_mut().tab = Tab::Vna;
         h.run_steps(5);

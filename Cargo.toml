@@ -12,6 +12,7 @@ antenna-solver = { path = "crates/solver" }
 antenna-designs = { path = "crates/designs" }
 antenna-vna = { path = "crates/vna" }
 antenna-terrain = { path = "crates/terrain" }
+antenna-rf = { path = "crates/rf" }
 num-complex = "0.4"
 rayon = "1.11"
 wgpu = "29"

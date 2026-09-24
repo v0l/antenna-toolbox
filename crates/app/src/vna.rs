@@ -2,11 +2,19 @@ use crate::charts::{self, GREEN};
 use crate::design::fmt_z;
 use crate::traces::{self, Trace};
 use crate::worker::Job;
+use antenna_rf::cable::{CABLES, OpenFit, Run, fit_open};
 use antenna_solver::solve::swr_of;
 use antenna_vna::{C64, Calibration, Point, Port, Standard, detect};
 use egui::Ui;
 use egui_bench::prelude::*;
 use std::sync::mpsc::{Sender, channel};
+
+#[derive(Clone, Copy, PartialEq)]
+pub enum Deembed {
+    Off,
+    Cable,
+    Measured,
+}
 
 enum Reply {
     Connected { describe: String, device_cal: Option<String>, max_points: usize },
@@ -43,6 +51,12 @@ pub struct VnaTab {
     pub target: f64,
     pub z0: f64,
     pub length: f64,
+    pub deembed: Deembed,
+    pub cable: usize,
+    pub cable_m: f64,
+    pub open_fit: Option<OpenFit>,
+    capture_open: bool,
+    matcher: crate::matcher::Matcher,
 }
 
 impl Default for VnaTab {
@@ -71,6 +85,12 @@ impl Default for VnaTab {
             target: 162.0,
             z0: 50.0,
             length: 0.0,
+            deembed: Deembed::Off,
+            cable: 2,
+            cable_m: 1.0,
+            open_fit: None,
+            capture_open: false,
+            matcher: Default::default(),
         }
     }
 }
@@ -230,7 +250,19 @@ impl VnaTab {
                 }
                 Reply::Swept(Ok(pts)) => {
                     self.waiting = false;
-                    let captured = self.capture.is_some();
+                    let captured = self.capture.is_some() || self.capture_open;
+                    if std::mem::take(&mut self.capture_open) {
+                        let cal = self.calibrated(&pts);
+                        let g: Vec<(f64, C64)> = cal.iter().map(|p| (p.freq, p.s11)).collect();
+                        self.open_fit = fit_open(&g, false);
+                        self.message = Some(match self.open_fit {
+                            Some(_) => {
+                                self.deembed = Deembed::Measured;
+                                (true, "fitted the open cable".into())
+                            }
+                            None => (false, "that sweep does not look like an open cable".into()),
+                        });
+                    }
                     if let Some(std) = self.capture.take() {
                         self.cal.store(std, &pts);
                         self.message = Some((
@@ -258,11 +290,24 @@ impl VnaTab {
         }
     }
 
+    fn calibrated(&self, raw: &[Point]) -> Vec<Point> {
+        if self.use_cal && self.cal.matches(raw) { self.cal.apply(raw) } else { raw.to_vec() }
+    }
+
     pub fn measured(&self) -> Vec<Point> {
-        if self.use_cal && self.cal.matches(&self.raw) {
-            self.cal.apply(&self.raw)
-        } else {
-            self.raw.clone()
+        let pts = self.calibrated(&self.raw);
+        let run = Run { cable: CABLES[self.cable.min(CABLES.len() - 1)], len_m: self.cable_m };
+        let to_s11 = |z: C64| (z - 50.0) / (z + 50.0);
+        match (self.deembed, self.open_fit) {
+            (Deembed::Cable, _) => pts
+                .into_iter()
+                .map(|p| Point { s11: to_s11(run.toward_load(p.z(50.0), p.freq)), ..p })
+                .collect(),
+            (Deembed::Measured, Some(fit)) => pts
+                .into_iter()
+                .map(|p| Point { s11: fit.toward_load(p.s11, p.freq), ..p })
+                .collect(),
+            _ => pts,
         }
     }
 
@@ -420,6 +465,90 @@ impl VnaTab {
             let ready = self.cal.complete() && self.cal.matches(&self.raw);
             lamp(ui, if ready { "corrected" } else { "uncorrected" }, ready && self.use_cal, false);
         });
+        ui.add_space(8.0);
+        self.cable_section(ui);
+    }
+
+    fn cable_section(&mut self, ui: &mut Ui) {
+        section(ui, "feedline", "read the antenna, not the cable", |ui| {
+            hint(
+                ui,
+                "If you calibrated at the VNA rather than at the far end of the cable, take the cable out of the reading here. Measured is best: leave the far end open, capture, and its length and loss are fitted from the sweep.",
+            );
+            ui.horizontal(|ui| {
+                for (d, l) in [
+                    (Deembed::Off, "off"),
+                    (Deembed::Cable, "cable"),
+                    (Deembed::Measured, "measured"),
+                ] {
+                    if toggle(ui, l, self.deembed == d).clicked() {
+                        self.deembed = d;
+                    }
+                }
+            });
+            match self.deembed {
+                Deembed::Off => {}
+                Deembed::Cable => {
+                    row(ui, "type", |ui| {
+                        egui::ComboBox::from_id_salt("vna-cable")
+                            .selected_text(CABLES[self.cable.min(CABLES.len() - 1)].name)
+                            .show_ui(ui, |ui| {
+                                for (i, c) in CABLES.iter().enumerate() {
+                                    ui.selectable_value(&mut self.cable, i, c.name);
+                                }
+                            });
+                    });
+                    row(ui, "length m", |ui| {
+                        ui.add(
+                            egui::DragValue::new(&mut self.cable_m)
+                                .range(0.0..=500.0)
+                                .speed(0.01)
+                                .max_decimals(3),
+                        );
+                    });
+                    let run = Run { cable: CABLES[self.cable], len_m: self.cable_m };
+                    note(
+                        ui,
+                        format!(
+                            "{:.2} dB each way at {} MHz, velocity factor {:.2}",
+                            run.loss_db(self.target * 1e6),
+                            self.target,
+                            run.cable.vf
+                        ),
+                        LEGEND,
+                    );
+                }
+                Deembed::Measured => {
+                    let can = self.link.is_some() && !self.waiting;
+                    if ui
+                        .add_enabled(
+                            can,
+                            egui::Button::new(action("capture with the far end open")),
+                        )
+                        .clicked()
+                    {
+                        self.capture_open = true;
+                        self.continuous = false;
+                        self.request();
+                    }
+                    match self.open_fit {
+                        Some(f) => note(
+                            ui,
+                            format!(
+                                "{:.2} ns one way: {:.3} m of solid PE, {:.3} m of foam. {:.2} dB each way at {} MHz.",
+                                f.delay_s * 1e9,
+                                f.length_m(0.66),
+                                f.length_m(0.83),
+                                f.one_way_db(self.target * 1e6),
+                                self.target
+                            ),
+                            VALUE,
+                        ),
+                        None => note(ui, "Nothing captured yet.", LEGEND),
+                    }
+                }
+            }
+        });
     }
 
     fn centre_on_target(&mut self) {
@@ -491,6 +620,14 @@ impl VnaTab {
         Line::new().note(charts::bandwidth(&swr, target, z0)).size(11.0).show(ui);
         ui.add_space(8.0);
         self.trim(ui, res, &pts);
+        if let Some(p) = pts
+            .iter()
+            .min_by(|a, b| (a.freq / 1e6 - target).abs().total_cmp(&(b.freq / 1e6 - target).abs()))
+        {
+            ui.add_space(8.0);
+            let sweep: Vec<(f64, C64)> = pts.iter().map(|p| (p.freq, p.z(z0))).collect();
+            self.matcher.show(ui, p.z(z0), p.freq, z0, &sweep);
+        }
     }
 
     fn trim(&mut self, ui: &mut Ui, res: Option<Resonance>, pts: &[Point]) {

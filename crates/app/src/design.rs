@@ -153,6 +153,7 @@ pub struct DesignTab {
     tune_note: Option<String>,
     pending: Option<(String, Instant)>,
     view: View,
+    matcher: crate::matcher::Matcher,
     edits: HashMap<String, String>,
     note: Option<String>,
     scale_key: String,
@@ -188,6 +189,7 @@ impl Default for DesignTab {
             tune_note: None,
             pending: None,
             view: View::default(),
+            matcher: Default::default(),
             edits: HashMap::new(),
             note: None,
             scale_key: String::new(),
@@ -1106,6 +1108,11 @@ impl DesignTab {
         if let (Some(plan), Some(r)) = (&plan, &solved) {
             let fmt = self.fmt();
             match_panel(ui, plan, r.z, freq, &fmt);
+        }
+        if let Some(r) = solved.as_ref().filter(|r| !r.hybrid) {
+            ui.add_space(8.0);
+            let sweep: Vec<(f64, C64)> = self.sweep.iter().map(|p| (p.f * 1e6, p.z)).collect();
+            self.matcher.show(ui, r.z, freq * 1e6, z0, &sweep);
         }
     }
 

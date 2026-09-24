@@ -46,6 +46,20 @@ pub fn snapshot(app: &App) -> BTreeMap<&'static str, String> {
     m.insert("vna_points", v.points.to_string());
     m.insert("vna_target", v.target.to_string());
     m.insert("vna_z0", v.z0.to_string());
+    m.insert("vna_cable", v.cable.to_string());
+    m.insert("vna_cable_m", v.cable_m.to_string());
+    m.insert(
+        "vna_deembed",
+        match v.deembed {
+            crate::vna::Deembed::Off => "off",
+            crate::vna::Deembed::Cable => "cable",
+            crate::vna::Deembed::Measured => "measured",
+        }
+        .into(),
+    );
+    if let Some(f) = v.open_fit {
+        m.insert("vna_open_fit", format!("{},{},{}", f.delay_s, f.k_sqrt, f.k_lin));
+    }
     m
 }
 
@@ -136,4 +150,19 @@ pub fn load(app: &mut App) {
     if let Some(n) = m.get("vna_points").and_then(|v| v.parse().ok()) {
         app.vna.points = n;
     }
+    num("vna_cable_m", &mut app.vna.cable_m);
+    if let Some(n) = m.get("vna_cable").and_then(|v| v.parse::<usize>().ok()) {
+        app.vna.cable = n.min(antenna_rf::cable::CABLES.len() - 1);
+    }
+    if let Some(v) = m.get("vna_open_fit") {
+        let f: Vec<f64> = v.split(',').filter_map(|x| x.parse().ok()).collect();
+        if let [delay_s, k_sqrt, k_lin] = f[..] {
+            app.vna.open_fit = Some(antenna_rf::cable::OpenFit { delay_s, k_sqrt, k_lin });
+        }
+    }
+    app.vna.deembed = match m.get("vna_deembed").copied() {
+        Some("cable") => crate::vna::Deembed::Cable,
+        Some("measured") if app.vna.open_fit.is_some() => crate::vna::Deembed::Measured,
+        _ => crate::vna::Deembed::Off,
+    };
 }
