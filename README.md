@@ -13,10 +13,10 @@ and starts it alongside the other bench tools.
 
 ## Design
 
-Pick one of 36 templates (Yagi, Moxon, log-periodic, quad, J-pole, collinear,
-QFH, discone, helix, dish, Vivaldi, microstrip patch, printed inverted-F and
-more), set the frequency and wire, and get a cut sheet, a drawing and a feed
-detail. Every design is solved, not looked up:
+Pick one of 37 templates (Yagi, Moxon, log-periodic, quad, J-pole, collinear,
+QFH, discone, helix, dish, Vivaldi, microstrip patch, printed inverted-F, a
+random wire on a 9:1 unun and more), set the frequency and wire, and get a cut
+sheet, a drawing and a feed detail. Every design is solved, not looked up:
 
 - Wire antennas by the method of moments (Galerkin, NEC-2 style), with wire
   loss, insulation, lumped loads, transmission lines and networks, free space,
@@ -26,6 +26,10 @@ detail. Every design is solved, not looked up:
 - Printed antennas by FDTD with the board's dielectric, on the GPU (WebGPU in
   the browser) with a CPU fallback.
 - NEC-2 decks import and export, so a model can go to and from 4nec2 or nec2c.
+
+Below 30 MHz the SWR is also solved across every amateur band from the design
+frequency up to 10 m, before and after the match, so a multiband wire shows
+which bands need a tuner.
 
 Then tune the sizes by hand or with the optimiser, synthesise an L, pi, T, stub
 or quarter-wave match from standard part values, check near-field RF exposure

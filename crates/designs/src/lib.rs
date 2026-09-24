@@ -1,3 +1,4 @@
+pub mod bands;
 pub mod designs;
 pub mod draw;
 pub mod export;
@@ -181,7 +182,8 @@ pub fn default_controls() -> Controls {
     ControlId::ALL.iter().map(|&c| (c, c.def().def)).collect()
 }
 
-pub const FREQUENCY_PRESETS: [f64; 8] = [144.2, 162.0, 433.9, 868.0, 915.0, 1090.0, 2450.0, 5800.0];
+pub const FREQUENCY_PRESETS: [f64; 11] =
+    [3.6, 7.1, 14.2, 144.2, 162.0, 433.9, 868.0, 915.0, 1090.0, 2450.0, 5800.0];
 
 pub const WIRE_PRESETS: [(&str, f64); 5] =
     [("12ga", 2.05), ("14ga", 1.63), ("16ga", 1.29), ("18ga", 1.02), ("22ga", 0.64)];

@@ -3,6 +3,7 @@ use crate::custom::{Custom, Ground};
 use crate::view3d::{self, Quad, View, bounds_of};
 use crate::worker::Job;
 use crate::{drawing, rich};
+use antenna_designs::bands::{Band, bands_from};
 use antenna_designs::export::{cut_to_dxf, dxf_filename};
 use antenna_designs::matching::{MatchKind, MatchPlan, plan_match, swr_of_50};
 use antenna_designs::optimise::{Goal, Problem, Score};
@@ -120,9 +121,16 @@ enum Msg {
     Solved(Arc<SolveResult>, Vec<Quad>, Option<Metrics>),
     Sweep(Vec<SweepPoint>, bool),
     Gain(Vec<(f64, f64, f64)>),
+    Bands(Vec<BandSwr>),
     Progress(String),
     #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
     Fallback,
+}
+
+#[derive(Clone)]
+pub struct BandSwr {
+    pub band: &'static Band,
+    pub z: [C64; 3],
 }
 
 fn fdtd_finish(
@@ -216,6 +224,7 @@ pub struct DesignTab {
     mesh: Option<Vec<Quad>>,
     pub sweep: Vec<SweepPoint>,
     pub gain_sweep: Vec<(f64, f64, f64)>,
+    pub bands: Vec<BandSwr>,
     sweeping: bool,
     status: String,
     job: Option<Job<Msg>>,
@@ -260,6 +269,7 @@ impl Default for DesignTab {
             mesh: None,
             sweep: Vec::new(),
             gain_sweep: Vec::new(),
+            bands: Vec::new(),
             sweeping: false,
             status: "starting".into(),
             job: None,
@@ -462,6 +472,7 @@ impl DesignTab {
                     self.sweeping = !done;
                 }
                 Msg::Gain(pts) => self.gain_sweep = pts,
+                Msg::Bands(b) => self.bands = b,
                 Msg::Progress(s) => self.status = s,
                 Msg::Fallback => {
                     let key = self.solved_for.clone();
@@ -608,6 +619,7 @@ impl DesignTab {
         self.solved_for = key;
         self.sweep.clear();
         self.gain_sweep.clear();
+        self.bands.clear();
         self.sweeping = true;
         self.status = "solving…".into();
         self.job = Some(Job::spawn(ctx, "solve", move |h| {
@@ -638,6 +650,15 @@ impl DesignTab {
                     Some(p) => h.send(Msg::Sweep(p.points, true)),
                     None => return,
                 };
+                let mut bands = Vec::new();
+                for band in bands_from(freq) {
+                    if h.cancelled() {
+                        return;
+                    }
+                    let z = band.probes().map(|f| model.solve(C / f, false).z);
+                    bands.push(BandSwr { band, z });
+                    h.send(Msg::Bands(bands.clone()));
+                }
             } else {
                 h.send(Msg::Sweep(Vec::new(), true));
             }
@@ -1010,6 +1031,8 @@ impl DesignTab {
                 for f in FREQUENCY_PRESETS {
                     let label = if f >= 2000.0 {
                         format!("{:.1}G", f / 1000.0)
+                    } else if f < 30.0 {
+                        format!("{f}")
                     } else {
                         format!("{}", f.round())
                     };
@@ -1177,11 +1200,13 @@ impl DesignTab {
                         }
                         Page::Tune => {
                             self.swr_section(ui);
+                            self.bands_section(ui);
                             self.gain_section(ui);
                             self.cuts(ui);
                         }
                         Page::Match => {
                             self.swr_section(ui);
+                            self.bands_section(ui);
                             self.matcher_section(ui);
                         }
                         Page::Fields => self.modes_section(ui),
@@ -1455,6 +1480,51 @@ impl DesignTab {
         ui.add_space(8.0);
     }
 
+    fn bands_section(&mut self, ui: &mut Ui) {
+        if self.bands.is_empty() {
+            return;
+        }
+        let plan = self.plan();
+        let transforms = plan.filter(|m| !matches!(m.kind, MatchKind::Direct | MatchKind::Choke));
+        let (z0, freq) = (self.z0, self.freq);
+        let worst = |b: &BandSwr, through: Option<&MatchPlan>| {
+            b.band
+                .probes()
+                .iter()
+                .zip(&b.z)
+                .map(|(&f, &z)| match through {
+                    Some(m) => swr_of_50(m.apply(z, f, freq), z0),
+                    None => swr_of(z, z0),
+                })
+                .fold(1.0, f64::max)
+        };
+        section(ui, "hf bands", "worst SWR across each band", |ui| {
+            egui::Grid::new("band-table").num_columns(5).spacing([14.0, 3.0]).show(ui, |ui| {
+                let after = if transforms.is_some() { "matched" } else { "" };
+                for h in ["band", "MHz", "bare", after, ""] {
+                    ui.label(legend(h));
+                }
+                ui.end_row();
+                for b in &self.bands {
+                    let bare = worst(b, None);
+                    let shown = transforms.as_ref().map(|m| worst(b, Some(m)));
+                    let (verdict, colour) = tuner_reach(shown.unwrap_or(bare));
+                    ui.label(value(b.band.name));
+                    ui.label(value(format!("{}-{}", b.band.low, b.band.high)));
+                    ui.label(value(format!("{bare:.1}")));
+                    ui.label(value(shown.map(|s| format!("{s:.1}")).unwrap_or_default()));
+                    ui.label(value(verdict).color(colour));
+                    ui.end_row();
+                }
+            });
+            hint(
+                ui,
+                "Solved at the bottom, middle and top of each band. A radio's built-in tuner usually reaches 3:1, an external or automatic one about 10:1.",
+            );
+        });
+        ui.add_space(8.0);
+    }
+
     fn gain_section(&mut self, ui: &mut Ui) {
         let freq = self.freq;
         if self.gain_sweep.len() > 1 {
@@ -1692,6 +1762,18 @@ pub fn swr_chart(
         text.push_str(&format!(" · best {:.2}:1 at {:.2} MHz", b.1, b.0));
     }
     Line::new().note(text).size(11.0).wrapped(ui);
+}
+
+fn tuner_reach(swr: f64) -> (&'static str, Color32) {
+    if swr <= 2.0 {
+        ("no tuner", SAFE)
+    } else if swr <= 3.0 {
+        ("built-in tuner", TRACE)
+    } else if swr <= 10.0 {
+        ("external tuner", WARN)
+    } else {
+        ("out of reach", FAULT)
+    }
 }
 
 fn match_panel(ui: &mut Ui, plan: &MatchPlan, z: C64, freq: f64, fmt: &dyn Fn(f64) -> String) {

@@ -96,6 +96,35 @@ fn step_up_plan(z: C64, z0: f64) -> MatchPlan {
     }
 }
 
+fn unun_plan(z: C64, z0: f64) -> MatchPlan {
+    let after = swr_of_50(z / 9.0, z0);
+    MatchPlan {
+        kind: MatchKind::StepUp,
+        headline: "9:1 unun, then a tuner",
+        balun: format!(
+            "The end of the wire is {:.0} Ω with {:.0} Ω of reactance, and a 9:1 unun divides \
+             both by nine. Wind three wires side by side, 9 turns, on an FT-240-43 and join \
+             them in series, the end of each to the start of the next. The start of the first \
+             winding is the cold end: coax braid and counterpoise. The coax centre pin goes to \
+             the first junction, and the radiator to the far end of the third winding. An \
+             unun does not isolate the coax from the antenna, so keep a choke on the coax.",
+            z.re, z.im
+        ),
+        line: None,
+        caveat: Some(if after <= 3.0 {
+            "Within 3:1 after the unun, so most radios' built-in tuners will finish the match."
+        } else if after <= 10.0 {
+            "Over 3:1 after the unun. That is normal for a random wire, and an external or \
+             automatic tuner handles it, but a radio's built-in tuner usually stops at 3:1."
+        } else {
+            "Over 10:1 even after the unun, which is out of reach of most tuners. The wire is \
+             close to a half-wave multiple here; change its length by a few percent."
+        }),
+        use4: false,
+        step_up: 9.0,
+    }
+}
+
 fn through_line(z: C64, zt: f64, f: f64, f0: f64) -> C64 {
     let t = (std::f64::consts::FRAC_PI_2 * (f / f0)).tan();
     let den = C64::new(zt - z.im * t, z.re * t);
@@ -151,6 +180,9 @@ fn choke_advice(lam_mm: f64) -> String {
 pub fn plan_match(id: &str, z: C64, lam_mm: f64, z0: f64) -> MatchPlan {
     if id == "efhw" {
         return step_up_plan(z, z0);
+    }
+    if id == "random" {
+        return unun_plan(z, z0);
     }
     let balanced = is_balanced(id);
     let reactive = z.im.abs() > 0.3 * z.re.max(10.0);

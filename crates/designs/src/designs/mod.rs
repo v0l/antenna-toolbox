@@ -27,6 +27,7 @@ mod ocf;
 mod patch;
 mod qfh;
 mod quad;
+mod random;
 mod sleeve;
 mod slimjim;
 mod spiral;
@@ -37,7 +38,7 @@ pub mod yagi;
 
 use crate::Design;
 
-pub static DESIGNS: [&Design; 36] = [
+pub static DESIGNS: [&Design; 37] = [
     &moxon::MOXON,
     &yagi::YAGI,
     &lpda::LPDA,
@@ -54,6 +55,7 @@ pub static DESIGNS: [&Design; 36] = [
     &folded::FOLDED,
     &invv::INVV,
     &efhw::EFHW,
+    &random::RANDOM,
     &ocf::OCF,
     &bowtie::BOWTIE,
     &spiral::SPIRAL,

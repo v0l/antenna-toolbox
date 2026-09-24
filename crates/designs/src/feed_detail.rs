@@ -1,4 +1,6 @@
-use crate::draw::{Anchor, DIM, Drawing, Face, GOLD, GREY, METAL, MUTED, SILVER, Stroke, hex};
+use crate::draw::{
+    Anchor, DIM, Drawing, Face, GOLD, GREY, METAL, MUTED, PALE, SILVER, Stroke, hex,
+};
 
 #[derive(Clone, Debug)]
 pub enum FeedDetail {
@@ -7,6 +9,7 @@ pub enum FeedDetail {
     Plate,
     GroundPlane,
     Transformer,
+    Unun,
 }
 
 pub fn inline(left: &str, right: &str, extra: Option<&str>) -> FeedDetail {
@@ -80,6 +83,19 @@ impl FeedDetail {
                        coax braid as the counterpoise instead, fit a choke a short way down the \
                        cable so its length is defined. Many builds add 100 to 150 pF across the \
                        2 turn primary to flatten the SWR on the higher bands."
+                    .into(),
+            },
+            FeedDetail::Unun => Block {
+                title: "Feed detail: 9:1 unun in a small box, viewed from the front",
+                drawing: Some(unun_drawing()),
+                note: "Lay three lengths of enamelled wire side by side and wind them together, 9 \
+                       turns, on an FT-240-43. That gives three windings of 9 turns. Join them in \
+                       series, the end of the first to the start of the second and the end of the \
+                       second to the start of the third, so the whole thing is one winding of 27 \
+                       turns. The coax braid and the counterpoise go to the start of the first \
+                       winding, the centre pin to the first junction, and the radiator to the end \
+                       of the third. The voltage steps up three times, so the impedance steps up \
+                       nine. Mark the wire ends before you wind; they all look alike afterwards."
                     .into(),
             },
             FeedDetail::GroundPlane => Block {
@@ -209,6 +225,61 @@ fn transformer_drawing() -> Drawing {
     d.text(444.0, (top + tap) / 2.0 + 4.0, "14 turns in all, on a type 43 toroid", MUTED, 12.0);
     d.line(300.0, bottom + 4.0, 440.0, bottom + 24.0, GREY, 1.0);
     d.text(444.0, bottom + 28.0, "cold end: braid and counterpoise", GREY, 12.0);
+    d
+}
+
+fn unun_drawing() -> Drawing {
+    let mut d = Drawing::new(640.0, 300.0);
+    let (x, top, bottom) = (330.0, 56.0, 218.0);
+    d.rect(250.0, 36.0, 160.0, 200.0, Some(SLEEVE), Some(Stroke::new(METAL, 1.5)));
+    let colours = [GOLD, SILVER, PALE];
+    let per = 9;
+    let turns = per * colours.len();
+    let pitch = (bottom - top) / turns as f64;
+    for i in 0..turns {
+        let y = bottom - (i as f64 + 0.5) * pitch;
+        d.arc(
+            x,
+            y,
+            12.0,
+            pitch / 2.0,
+            -std::f64::consts::FRAC_PI_2,
+            std::f64::consts::FRAC_PI_2,
+            Stroke::new(colours[i / per], 2.0),
+        );
+    }
+    d.line(x, top - pitch / 2.0, x, top, PALE, 2.0);
+    d.line(x, bottom, x, bottom + 4.0, GOLD, 2.0);
+    let tap = bottom - per as f64 * pitch;
+    let second = bottom - 2.0 * per as f64 * pitch;
+    d.dot(x, tap, 3.4, GOLD);
+    d.dot(x, second, 2.6, MUTED);
+    d.dot(x, bottom + 4.0, 3.4, GREY);
+    lead(&mut d, &[(x, top - pitch / 2.0), (x, 46.0), (600.0, 46.0)], GOLD);
+    d.text_at(
+        600.0,
+        32.0,
+        "radiator, from the end of the third winding",
+        GOLD,
+        12.0,
+        Anchor::End,
+        Face::Sans,
+    );
+    lead(&mut d, &[(x, bottom + 4.0), (40.0, bottom + 4.0)], GREY);
+    d.text(40.0, bottom - 8.0, "counterpoise, from the cold end", GREY, 12.0);
+    d.rect(262.0, 244.0, 40.0, 22.0, Some(BODY), Some(Stroke::new(METAL, 1.5)));
+    d.rect(272.0, 266.0, 20.0, 26.0, Some(HOLE), Some(Stroke::new(METAL, 1.5)));
+    lead(&mut d, &[(282.0, 244.0), (282.0, tap), (x, tap)], GOLD);
+    lead(&mut d, &[(296.0, 244.0), (296.0, bottom + 4.0)], GREY);
+    d.text_at(262.0, 280.0, "coax to radio", MUTED, 12.0, Anchor::End, Face::Sans);
+    d.line(x + 16.0, tap, 440.0, tap, GOLD, 1.0);
+    d.text(444.0, tap + 4.0, "first junction: centre pin", GOLD, 12.0);
+    d.line(x + 16.0, second, 440.0, second, MUTED, 1.0);
+    d.text(444.0, second + 4.0, "second junction, nothing else", MUTED, 12.0);
+    d.line(x + 16.0, (top + second) / 2.0, 440.0, (top + second) / 2.0, MUTED, 1.0);
+    d.text(444.0, (top + second) / 2.0 + 4.0, "3 × 9 turns, FT-240-43", MUTED, 12.0);
+    d.line(300.0, bottom + 4.0, 440.0, bottom + 22.0, GREY, 1.0);
+    d.text(444.0, bottom + 26.0, "cold end: braid and counterpoise", GREY, 12.0);
     d
 }
 
