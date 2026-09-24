@@ -5,6 +5,7 @@ use crate::worker::Job;
 use crate::{drawing, rich};
 use antenna_designs::export::{cut_to_dxf, dxf_filename};
 use antenna_designs::matching::{MatchKind, MatchPlan, plan_match, swr_of_50};
+use antenna_designs::optimise::{Goal, Problem, Score};
 use antenna_designs::{
     Build, Computed, ControlId, Controls, DESIGNS, Design, FREQUENCY_PRESETS, Group, Scene,
     Tunable, WIRE_PRESETS, default_controls, dress,
@@ -121,6 +122,11 @@ enum Msg {
     Gain(Vec<(f64, f64, f64)>),
 }
 
+enum OptMsg {
+    Best(HashMap<String, f64>, Score, usize),
+    Done(usize),
+}
+
 enum TuneMsg {
     Step(f64),
     Done(Option<(f64, C64)>),
@@ -150,6 +156,11 @@ pub struct DesignTab {
     status: String,
     job: Option<Job<Msg>>,
     tune: Option<Job<TuneMsg>>,
+    opt: Option<Job<OptMsg>>,
+    opt_goal: Goal,
+    opt_off: std::collections::HashSet<String>,
+    opt_best: Option<(Score, usize)>,
+    opt_start: Option<Score>,
     tune_step: Option<f64>,
     tune_note: Option<String>,
     pending: Option<(String, Instant)>,
@@ -187,6 +198,11 @@ impl Default for DesignTab {
             status: "starting".into(),
             job: None,
             tune: None,
+            opt: None,
+            opt_goal: Goal::default(),
+            opt_off: Default::default(),
+            opt_best: None,
+            opt_start: None,
             tune_step: None,
             tune_note: None,
             pending: None,
@@ -374,6 +390,25 @@ impl DesignTab {
                 Msg::Gain(pts) => self.gain_sweep = pts,
             }
         }
+        let omsgs = self.opt.as_mut().map(|j| j.poll()).unwrap_or_default();
+        for m in omsgs {
+            match m {
+                OptMsg::Best(o, s, n) => {
+                    if self.opt_start.is_none() {
+                        self.opt_start = Some(s);
+                    }
+                    self.overrides = o;
+                    self.edits.clear();
+                    self.opt_best = Some((s, n));
+                }
+                OptMsg::Done(n) => {
+                    self.opt = None;
+                    if let Some(b) = &mut self.opt_best {
+                        b.1 = n;
+                    }
+                }
+            }
+        }
         let tmsgs = self.tune.as_mut().map(|j| j.poll()).unwrap_or_default();
         for m in tmsgs {
             match m {
@@ -482,6 +517,110 @@ impl DesignTab {
                 h.send(Msg::Gain(gains.clone()));
             }
         }));
+    }
+
+    fn start_optimise(&mut self, ctx: &egui::Context, params: &[Tunable]) {
+        let design = self.design;
+        let (lam, wire, props) = (self.lam(), self.wire, self.props());
+        let base = self.overrides.clone();
+        let controls = self.controls.clone();
+        let keys: Vec<(String, f64)> = params
+            .iter()
+            .filter(|p| !self.opt_off.contains(&p.key))
+            .map(|p| (p.key.clone(), p.val))
+            .collect();
+        if keys.is_empty() {
+            return;
+        }
+        let forward = self.metrics.as_ref().map(|m| m.peak_dir).unwrap_or([0.0, 0.0, 1.0]);
+        let goal = Goal { z0: self.z0, ..self.opt_goal };
+        self.opt_best = None;
+        self.opt_start = None;
+        self.opt = Some(Job::spawn(ctx, "optimise", move |h| {
+            let problem = Problem {
+                design,
+                lam,
+                wire,
+                props,
+                controls: &controls,
+                base: &base,
+                keys,
+                goal,
+                forward,
+            };
+            if let Some(s) = problem.score(&vec![1.0; problem.keys.len()]) {
+                h.send(OptMsg::Best(base.clone(), s, 1));
+            }
+            let evals = 60 * (problem.keys.len() + 1);
+            let (x, s) = problem
+                .run(evals.min(600), |x, s, n| h.send(OptMsg::Best(problem.overrides(x), s, n)));
+            h.send(OptMsg::Best(problem.overrides(&x), s, evals));
+            h.send(OptMsg::Done(evals));
+        }));
+    }
+
+    fn optimise_panel(&mut self, ui: &mut Ui, params: &[Tunable]) {
+        let ctx = ui.ctx().clone();
+        section(ui, "optimise", "search the sizes for a better antenna", |ui| {
+            hint(
+                ui,
+                "Each weight sets how much a decibel of that goal counts. Match is the mismatch loss at the worst SWR across the band, gain is toward the current beam, F/B is against the strongest rear lobe. The search moves the ticked sizes by up to 25% either way.",
+            );
+            ui.horizontal_wrapped(|ui| {
+                let g = &mut self.opt_goal;
+                for (label, v) in [
+                    ("match", &mut g.match_weight),
+                    ("gain", &mut g.gain_weight),
+                    ("F/B", &mut g.fb_weight),
+                ] {
+                    ui.label(legend(label));
+                    ui.add(egui::DragValue::new(v).range(0.0..=5.0).speed(0.05));
+                }
+                ui.label(legend("band ±%"));
+                let mut pct = g.band * 100.0;
+                if ui.add(egui::DragValue::new(&mut pct).range(0.0..=20.0).speed(0.1)).changed() {
+                    g.band = pct / 100.0;
+                }
+            });
+            ui.horizontal_wrapped(|ui| {
+                for p in params {
+                    let on = !self.opt_off.contains(&p.key);
+                    if toggle(ui, &p.name, on).clicked() {
+                        if on {
+                            self.opt_off.insert(p.key.clone());
+                        } else {
+                            self.opt_off.remove(&p.key);
+                        }
+                    }
+                }
+            });
+            ui.horizontal(|ui| {
+                if self.opt.is_none() {
+                    if ui.button(action("optimise")).clicked() {
+                        self.start_optimise(&ctx, params);
+                    }
+                } else if ui.button(action("stop")).clicked() {
+                    self.opt = None;
+                }
+            });
+            if let Some((s, n)) = self.opt_best {
+                let from = self.opt_start.unwrap_or(s);
+                note(
+                    ui,
+                    format!(
+                        "{}{n} solves. SWR {:.2} → {:.2}, gain {:.1} → {:.1} dBi, F/B {:.1} → {:.1} dB.",
+                        if self.opt.is_some() { "searching, " } else { "" },
+                        from.worst_swr,
+                        s.worst_swr,
+                        from.gain,
+                        s.gain,
+                        from.fb,
+                        s.fb
+                    ),
+                    if self.opt.is_some() { LEGEND } else { READOUT },
+                );
+            }
+        });
     }
 
     fn start_tune(&mut self, ctx: &egui::Context) {
@@ -932,6 +1071,8 @@ impl DesignTab {
                 ui.add_space(8.0);
                 if !params.is_empty() {
                     self.tune_panel(ui, &params);
+                    ui.add_space(8.0);
+                    self.optimise_panel(ui, &params);
                     ui.add_space(8.0);
                 }
                 if let Some(cut) = cut {

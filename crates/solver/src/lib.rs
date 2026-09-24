@@ -25,6 +25,7 @@ pub mod linalg;
 pub mod mom;
 pub mod near;
 pub mod nec;
+pub mod optimise;
 pub mod po;
 pub mod polarisation;
 pub mod rational;

@@ -4,6 +4,7 @@ pub mod export;
 pub mod feed_detail;
 pub mod feeds;
 pub mod matching;
+pub mod optimise;
 pub mod sketch;
 
 use antenna_solver::geometry::{Geometry, Mesh};
