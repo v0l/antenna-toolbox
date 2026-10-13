@@ -108,6 +108,7 @@ fn compute(c: &Ctx) -> Output {
         ([xf - t / 2.0, yg + gap], [xf + t / 2.0, arm_y]),
     ];
     let model = Model {
+        parts: Vec::new(),
         metal: metal
             .iter()
             .map(|(lo, hi)| Aabb::new([m(lo[0]), m(lo[1]), m(h)], [m(hi[0]), m(hi[1]), m(h)]))

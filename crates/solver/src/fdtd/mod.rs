@@ -44,8 +44,72 @@ pub struct Port {
     pub r: f64,
 }
 
+pub type Triangle = [[f64; 3]; 3];
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Stuff {
+    Metal,
+    Dielectric { eps_r: f64, tan_d: f64 },
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Part {
+    pub triangles: Vec<Triangle>,
+    pub stuff: Stuff,
+}
+
+impl Part {
+    pub fn bounds(&self) -> Option<Aabb> {
+        let mut points = self.triangles.iter().flatten();
+        let first = *points.next()?;
+        Some(points.fold(Aabb { lo: first, hi: first }, |b, p| Aabb {
+            lo: [0, 1, 2].map(|i| b.lo[i].min(p[i])),
+            hi: [0, 1, 2].map(|i| b.hi[i].max(p[i])),
+        }))
+    }
+
+    pub fn planes(&self, axis: usize) -> Vec<f64> {
+        let mut out: Vec<f64> = self
+            .triangles
+            .iter()
+            .filter(|t| t.iter().all(|p| (p[axis] - t[0][axis]).abs() < 1e-12))
+            .map(|t| t[0][axis])
+            .collect();
+        out.sort_by(f64::total_cmp);
+        out.dedup_by(|p, q| (*p - *q).abs() < 1e-9);
+        out
+    }
+
+    pub fn rims(&self, axis: usize) -> Vec<(f64, f64)> {
+        let key = |p: [f64; 3]| p.map(f64::to_bits);
+        let mut count: std::collections::HashMap<([u64; 3], [u64; 3]), u32> = Default::default();
+        for t in &self.triangles {
+            for k in 0..3 {
+                let (a, b) = (key(t[k]), key(t[(k + 1) % 3]));
+                *count.entry(if a < b { (a, b) } else { (b, a) }).or_default() += 1;
+            }
+        }
+        let mut out: Vec<(f64, f64)> = Vec::new();
+        for t in &self.triangles {
+            for k in 0..3 {
+                let (a, b, c) = (t[k], t[(k + 1) % 3], t[(k + 2) % 3]);
+                let (ka, kb) = (key(a), key(b));
+                let once = count.get(&if ka < kb { (ka, kb) } else { (kb, ka) }) == Some(&1);
+                if !once || (a[axis] - b[axis]).abs() > 1e-12 || (c[axis] - a[axis]).abs() < 1e-12 {
+                    continue;
+                }
+                out.push((a[axis], (c[axis] - a[axis]).signum()));
+            }
+        }
+        out.sort_by(|p, q| p.0.total_cmp(&q.0).then(p.1.total_cmp(&q.1)));
+        out.dedup_by(|p, q| (p.0 - q.0).abs() < 1e-9 && p.1 == q.1);
+        out
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Model {
+    pub parts: Vec<Part>,
     pub metal: Vec<Aabb>,
     pub dielectrics: Vec<Dielectric>,
     pub port: Option<Port>,
@@ -62,6 +126,7 @@ impl Model {
             .iter()
             .copied()
             .chain(self.dielectrics.iter().map(|d| d.bounds))
+            .chain(self.parts.iter().filter_map(Part::bounds))
             .chain(self.port.iter().map(|p| Aabb::new(p.a, p.b)));
         let first = it.next()?;
         Some(it.fold(first, |acc, b| Aabb {
@@ -120,6 +185,12 @@ struct Setup {
 
 fn setup(model: &Model, opts: &Options) -> Result<Setup, String> {
     let port = model.port.ok_or("the model has no port")?;
+    let open = model.parts.iter().any(|p| {
+        matches!(p.stuff, Stuff::Dielectric { .. }) && !fieldgrid::raster::closed(&p.triangles)
+    });
+    if open {
+        return Err("a dielectric part is not a closed mesh".into());
+    }
     let grid = mesh::mesh(model, opts.pml).ok_or("nothing to mesh")?;
     let sim = engine::build(grid.clone(), model, port);
     let f0 = model.f0;

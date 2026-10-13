@@ -1,4 +1,4 @@
-use super::{C0, Model};
+use super::{C0, Model, Stuff};
 use fieldgrid::grid::{Grading, graded, pad, smooth};
 
 pub use fieldgrid::Grid;
@@ -41,6 +41,35 @@ pub fn mesh(model: &Model, pml: usize) -> Option<Grid> {
                 features.push((v, fine));
             }
         }
+        for part in &model.parts {
+            let Some(b) = part.bounds() else { continue };
+            let size = match part.stuff {
+                Stuff::Metal => fine,
+                Stuff::Dielectric { eps_r, .. } => {
+                    let local = lam / 20.0 / eps_r.sqrt();
+                    let thick = b.hi[a] - b.lo[a];
+                    if thick < 4.0 * local { (thick / 4.0).max(1e-6) } else { local }
+                }
+            };
+            for v in part.planes(a) {
+                fixed.push(v);
+                features.push((v, size));
+            }
+            if part.stuff == Stuff::Metal {
+                let wide = b.hi[a] - b.lo[a] > 2.0 * fine;
+                for (v, inward) in part.rims(a) {
+                    if wide {
+                        fixed.push(v + inward * fine / 3.0);
+                        fixed.push(v - inward * 2.0 * fine / 3.0);
+                    } else {
+                        fixed.push(v);
+                    }
+                    features.push((v, fine));
+                }
+            }
+            features.push((b.lo[a], size));
+            features.push((b.hi[a], size));
+        }
         for d in &model.dielectrics {
             let (lo, hi) = (d.bounds.lo[a], d.bounds.hi[a]);
             fixed.push(lo);
@@ -68,12 +97,17 @@ pub fn mesh(model: &Model, pml: usize) -> Option<Grid> {
         fixed.push(hi);
         fixed.sort_by(f64::total_cmp);
         fixed.dedup_by(|p, q| (*p - *q).abs() < 1e-7);
-        let dielectrics = &model.dielectrics;
+        let mut slow: Vec<(f64, f64, f64)> =
+            model.dielectrics.iter().map(|d| (d.bounds.lo[a], d.bounds.hi[a], d.eps_r)).collect();
+        for part in &model.parts {
+            if let (Stuff::Dielectric { eps_r, .. }, Some(b)) = (part.stuff, part.bounds()) {
+                slow.push((b.lo[a], b.hi[a], eps_r));
+            }
+        }
         let coarse = move |x: f64| {
-            dielectrics
-                .iter()
-                .filter(|d| x >= d.bounds.lo[a] && x <= d.bounds.hi[a])
-                .map(|d| coarse_air / d.eps_r.sqrt())
+            slow.iter()
+                .filter(|(lo, hi, _)| x >= *lo && x <= *hi)
+                .map(|(_, _, er)| coarse_air / er.sqrt())
                 .fold(coarse_air, f64::min)
         };
         let grading = Grading { features: &features, coarse: &coarse, ratio, fill: 0.0 };
@@ -93,6 +127,7 @@ mod tests {
     #[test]
     fn a_patch_mesh_keeps_its_lines_and_grows_smoothly() {
         let m = Model {
+            parts: Vec::new(),
             metal: vec![
                 Aabb::new([-0.04, -0.04, 0.0], [0.04, 0.04, 0.0]),
                 Aabb::new([-0.02, -0.015, 0.0016], [0.02, 0.015, 0.0016]),

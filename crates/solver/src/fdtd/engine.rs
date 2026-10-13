@@ -1,6 +1,8 @@
 use super::mesh::Grid;
-use super::{Aabb, EPS0, Model, Port};
+use super::{Aabb, EPS0, Model, Port, Stuff};
+use fieldgrid::Bvh;
 use fieldgrid::fdtd::{Edge, Materials, Media, PortDef};
+use fieldgrid::raster::{closed, sheet_edges, solid_cells, solid_edges};
 
 pub use fieldgrid::fdtd::{Sim, gaussian, idx, pulse_shape, time_step};
 
@@ -24,6 +26,15 @@ pub fn materials(grid: &Grid, model: &Model) -> Materials {
                     mats.sigma[c] = (w * EPS0 * d.eps_r * d.tan_d) as f32;
                 }
             }
+        }
+    }
+    for part in &model.parts {
+        let Stuff::Dielectric { eps_r, tan_d } = part.stuff else { continue };
+        let inside = solid_cells(&Bvh::new(part.triangles.clone()), grid);
+        for (c, _) in inside.iter().enumerate().filter(|(_, v)| **v) {
+            mats.eps[c] = eps_r as f32;
+            mats.inf[c] = eps_r as f32;
+            mats.sigma[c] = (w * EPS0 * eps_r * tan_d) as f32;
         }
     }
     mats
@@ -75,7 +86,18 @@ fn port_def(grid: &Grid, p: Port) -> PortDef {
 
 pub fn build(grid: Grid, model: &Model, port: Port) -> Sim {
     let mats = materials(&grid, model);
-    let mask = metal_edges(&grid, &model.metal);
+    let mut mask = metal_edges(&grid, &model.metal);
+    for part in model.parts.iter().filter(|p| p.stuff == Stuff::Metal) {
+        let mut add = |more: [Vec<bool>; 3]| {
+            for (edges, extra) in mask.iter_mut().zip(more) {
+                edges.iter_mut().zip(extra).for_each(|(e, x)| *e |= x);
+            }
+        };
+        add(sheet_edges(&part.triangles, &grid));
+        if closed(&part.triangles) {
+            add(solid_edges(&Bvh::new(part.triangles.clone()), &grid));
+        }
+    }
     let n = grid.dims();
     let pec = |c: usize, p: [usize; 3]| mask[c][idx(n, p[0], p[1], p[2])];
     let ports = vec![port_def(&grid, port)];
