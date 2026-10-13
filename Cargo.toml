@@ -16,7 +16,7 @@ antenna-vna = { path = "crates/vna" }
 antenna-terrain = { path = "crates/terrain" }
 antenna-rf = { path = "crates/rf" }
 antenna-hf = { path = "crates/hf" }
-sims-field = { git = "https://github.com/v0l/sims", rev = "f4784d0a2603c8878cb009b660d8ef5f108b76e3" }
+sims-field = { git = "https://github.com/v0l/sims", rev = "55e5363796275454b35308334fae5b89e3e89aa4" }
 num-complex = "0.4"
 rayon = "1.11"
 faer = { version = "0.24", default-features = false, features = ["std", "linalg"] }
