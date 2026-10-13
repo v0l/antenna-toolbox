@@ -10,6 +10,8 @@
 	<string>io.v0l.antenna-toolbox</string>
 	<key>CFBundleExecutable</key>
 	<string>antenna-toolbox</string>
+	<key>CFBundleIconFile</key>
+	<string>icon</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleVersion</key>

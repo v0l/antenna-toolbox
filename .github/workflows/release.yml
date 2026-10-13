@@ -119,6 +119,7 @@ jobs:
           app="dmg/Antenna Toolbox.app"
           mkdir -p "${app}/Contents/MacOS" "${app}/Contents/Resources"
           sed "s/__VERSION__/${version#v}/g" packaging/macos/Info.plist > "${app}/Contents/Info.plist"
+          cp packaging/macos/icon.icns "${app}/Contents/Resources/"
           cp "${bin_dir}/antenna-toolbox" "${app}/Contents/MacOS/"
           codesign --force --sign - "${app}"
           ln -s /Applications dmg/Applications

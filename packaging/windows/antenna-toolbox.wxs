@@ -11,6 +11,9 @@
     <MajorUpgrade DowngradeErrorMessage="A newer version of Antenna Toolbox is already installed." />
     <MediaTemplate EmbedCab="yes" />
 
+    <Icon Id="AppIcon" SourceFile="packaging\windows\icon.ico" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon" />
+
     <Property Id="ARPURLINFOABOUT" Value="https://github.com/v0l/antenna-toolbox" />
 
     <StandardDirectory Id="ProgramFiles64Folder">
@@ -27,7 +30,7 @@
 
     <StandardDirectory Id="ProgramMenuFolder">
       <Component Id="AppShortcut" Guid="3d292e81-600f-43f4-b613-7921ded0fe47">
-        <Shortcut Id="AntennaToolboxShortcut" Name="Antenna Toolbox" Target="[#AntennaToolboxExe]" WorkingDirectory="INSTALLFOLDER" />
+        <Shortcut Id="AntennaToolboxShortcut" Icon="AppIcon" Name="Antenna Toolbox" Target="[#AntennaToolboxExe]" WorkingDirectory="INSTALLFOLDER" />
         <RegistryValue Root="HKLM" Key="Software\v0l\AntennaToolbox" Name="shortcut" Type="integer" Value="1" KeyPath="yes" />
       </Component>
     </StandardDirectory>
