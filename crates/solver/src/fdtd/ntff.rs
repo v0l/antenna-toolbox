@@ -1,6 +1,6 @@
 use super::ETA0;
-use fieldgrid::fdtd::Far;
 use num_complex::Complex64 as C64;
+use sims_field::fdtd::Far;
 
 pub struct Box {
     pub freq: f64,

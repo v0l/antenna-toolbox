@@ -6,7 +6,7 @@ use num_complex::Complex64 as C64;
 use std::sync::{Mutex, OnceLock};
 
 pub struct Gpu {
-    gpu: fieldgrid::Gpu,
+    gpu: sims_field::Gpu,
     pub adapter: String,
     rwg_layout: wgpu::BindGroupLayout,
     rwg_fill: wgpu::ComputePipeline,
@@ -66,8 +66,8 @@ struct RwgUniform {
 
 impl Gpu {
     async fn new() -> Option<Gpu> {
-        let options = fieldgrid::gpu::Options { label: "antenna-solver", ..Default::default() };
-        let gpu = fieldgrid::Gpu::open(&options).await.ok()?;
+        let options = sims_field::gpu::Options { label: "antenna-solver", ..Default::default() };
+        let gpu = sims_field::Gpu::open(&options).await.ok()?;
         let device = &gpu.device;
         let pipe = |layout: &wgpu::BindGroupLayout, module: &wgpu::ShaderModule, name: &str| {
             let pl = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {

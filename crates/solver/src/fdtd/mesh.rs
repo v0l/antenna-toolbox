@@ -1,7 +1,7 @@
 use super::{C0, Model, Stuff};
-use fieldgrid::grid::{Grading, graded, pad, smooth};
+use sims_field::grid::{Grading, graded, pad, smooth};
 
-pub use fieldgrid::Grid;
+pub use sims_field::Grid;
 
 pub fn mesh(model: &Model, pml: usize) -> Option<Grid> {
     let bounds = model.bounds()?;

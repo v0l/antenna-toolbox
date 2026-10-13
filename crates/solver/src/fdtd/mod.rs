@@ -176,7 +176,7 @@ impl Default for Options {
 
 struct Setup {
     sim: engine::Sim,
-    patches: Option<fieldgrid::fdtd::Patches>,
+    patches: Option<sims_field::fdtd::Patches>,
     freqs: Vec<f64>,
     f0: f64,
     fc: f64,
@@ -186,7 +186,7 @@ struct Setup {
 fn setup(model: &Model, opts: &Options) -> Result<Setup, String> {
     let port = model.port.ok_or("the model has no port")?;
     let open = model.parts.iter().any(|p| {
-        matches!(p.stuff, Stuff::Dielectric { .. }) && !fieldgrid::raster::closed(&p.triangles)
+        matches!(p.stuff, Stuff::Dielectric { .. }) && !sims_field::raster::closed(&p.triangles)
     });
     if open {
         return Err("a dielectric part is not a closed mesh".into());
@@ -200,12 +200,12 @@ fn setup(model: &Model, opts: &Options) -> Result<Setup, String> {
             f0 * (1.0 - model.span + 2.0 * model.span * i as f64 / (opts.points - 1).max(1) as f64)
         })
         .collect();
-    let patches = opts.far_field.then(|| fieldgrid::fdtd::patches(&sim, 3));
+    let patches = opts.far_field.then(|| sims_field::fdtd::patches(&sim, 3));
     Ok(Setup { sim, patches, freqs, f0, fc, grid })
 }
 
-fn extras(s: &Setup, opts: &Options) -> fieldgrid::fdtd::Extras {
-    fieldgrid::fdtd::Extras {
+fn extras(s: &Setup, opts: &Options) -> sims_field::fdtd::Extras {
+    sims_field::fdtd::Extras {
         max_steps: opts.max_steps,
         decay_db: opts.decay_db,
         freqs: if s.patches.is_some() { vec![s.f0] } else { Vec::new() },
@@ -215,7 +215,7 @@ fn extras(s: &Setup, opts: &Options) -> fieldgrid::fdtd::Extras {
     }
 }
 
-fn finish(s: Setup, rec: fieldgrid::fdtd::Record, gpu: bool) -> Outcome {
+fn finish(s: Setup, rec: sims_field::fdtd::Record, gpu: bool) -> Outcome {
     let dt = s.sim.dt;
     let series = &rec.series;
     let all: Vec<f64> = s.freqs.iter().copied().chain(std::iter::once(s.f0)).collect();
@@ -241,7 +241,7 @@ fn finish(s: Setup, rec: fieldgrid::fdtd::Record, gpu: bool) -> Outcome {
     let (v0, i0) = spectra[last];
     let far =
         s.patches.as_ref().filter(|_| !rec.ntff.is_empty()).map(|p| {
-            ntff::Box::new(fieldgrid::fdtd::Far::load(p, &rec.ntff, 1, 0, s.f0, (1.0, 0.0)))
+            ntff::Box::new(sims_field::fdtd::Far::load(p, &rec.ntff, 1, 0, s.f0, (1.0, 0.0)))
         });
     let stats = Stats { cells: s.grid.cells(), steps: rec.steps, dt, decay_db: rec.decay_db, gpu };
     Outcome {
@@ -260,8 +260,8 @@ pub fn run(
     mut progress: impl FnMut(usize, f64) -> bool,
 ) -> Result<Outcome, String> {
     let s = setup(model, opts)?;
-    let pulse = fieldgrid::fdtd::Pulse { f0: s.f0, fc: s.fc };
-    let rec = fieldgrid::fdtd::run_cpu(&s.sim, 0, &pulse, &extras(&s, opts), &mut progress)?;
+    let pulse = sims_field::fdtd::Pulse { f0: s.f0, fc: s.fc };
+    let rec = sims_field::fdtd::run_cpu(&s.sim, 0, &pulse, &extras(&s, opts), &mut progress)?;
     Ok(finish(s, rec, false))
 }
 
@@ -272,7 +272,8 @@ pub async fn run_gpu(
 ) -> Result<Outcome, String> {
     let s = setup(model, opts)?;
     let g = gpu::open().await?;
-    let pulse = fieldgrid::fdtd::Pulse { f0: s.f0, fc: s.fc };
-    let rec = fieldgrid::fdtd::run(&g, &s.sim, 0, &pulse, &extras(&s, opts), &mut progress).await?;
+    let pulse = sims_field::fdtd::Pulse { f0: s.f0, fc: s.fc };
+    let rec =
+        sims_field::fdtd::run(&g, &s.sim, 0, &pulse, &extras(&s, opts), &mut progress).await?;
     Ok(finish(s, rec, true))
 }

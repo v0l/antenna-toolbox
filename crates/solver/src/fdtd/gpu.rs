@@ -1,12 +1,12 @@
-use fieldgrid::Gpu;
-use fieldgrid::gpu::Options;
+use sims_field::Gpu;
+use sims_field::gpu::Options;
 
 fn options() -> Options {
     Options { label: "fdtd", ..Default::default() }
 }
 
 pub async fn adapter() -> Option<(wgpu::Adapter, String)> {
-    let adapter = fieldgrid::gpu::adapter(&options()).await.ok()?;
+    let adapter = sims_field::gpu::adapter(&options()).await.ok()?;
     let info = adapter.get_info();
     Some((adapter, format!("{} ({:?})", info.name, info.backend)))
 }

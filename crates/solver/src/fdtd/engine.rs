@@ -1,10 +1,10 @@
 use super::mesh::Grid;
 use super::{Aabb, EPS0, Model, Port, Stuff};
-use fieldgrid::Bvh;
-use fieldgrid::fdtd::{Edge, Materials, Media, PortDef};
-use fieldgrid::raster::{closed, sheet_edges, solid_cells, solid_edges};
+use sims_field::Bvh;
+use sims_field::fdtd::{Edge, Materials, Media, PortDef};
+use sims_field::raster::{closed, sheet_edges, solid_cells, solid_edges};
 
-pub use fieldgrid::fdtd::{Sim, gaussian, idx, pulse_shape, time_step};
+pub use sims_field::fdtd::{Sim, gaussian, idx, pulse_shape, time_step};
 
 pub fn materials(grid: &Grid, model: &Model) -> Materials {
     let [_, ny, nz] = grid.dims();
