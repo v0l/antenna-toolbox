@@ -397,7 +397,10 @@ impl DesignTab {
                 dress(&mut g, props);
                 g
             }
-            Source::Custom => Geometry::Wire(self.custom.geometry(props)),
+            Source::Custom => match &self.custom.solid {
+                Some(s) => Geometry::Volume(s.model(self.freq * 1e6, self.span / 100.0)),
+                None => Geometry::Wire(self.custom.geometry(props)),
+            },
         }
     }
 
@@ -515,6 +518,22 @@ impl DesignTab {
     fn dropped(&mut self, ctx: &egui::Context) {
         let files = ctx.input(|i| i.raw.dropped_files.clone());
         for f in files {
+            let label = f.path.as_ref().map(|p| p.display().to_string()).unwrap_or(f.name.clone());
+            if label.to_ascii_lowercase().ends_with(".stl") {
+                let bytes = match (&f.bytes, &f.path) {
+                    (Some(b), _) => Ok(b.to_vec()),
+                    (None, Some(p)) => std::fs::read(p).map_err(|e| e.to_string()),
+                    _ => continue,
+                };
+                self.custom.path = label;
+                match bytes {
+                    Ok(b) => self.import_stl(&b),
+                    Err(e) => {
+                        self.custom.message = Some((false, format!("{}: {e}", self.custom.path)))
+                    }
+                }
+                continue;
+            }
             let text = match (&f.bytes, &f.path) {
                 (Some(b), _) => String::from_utf8_lossy(b).into_owned(),
                 (None, Some(p)) => match std::fs::read_to_string(p) {
@@ -528,6 +547,20 @@ impl DesignTab {
             };
             self.custom.path = f.path.map(|p| p.display().to_string()).unwrap_or(f.name);
             self.import_text(&text);
+        }
+    }
+
+    pub fn import_stl(&mut self, bytes: &[u8]) {
+        match self.custom.import_stl(bytes) {
+            Ok(()) => {
+                self.note = None;
+                self.source = Source::Custom;
+                self.custom.name = std::path::Path::new(&self.custom.path)
+                    .file_stem()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| "imported".into());
+            }
+            Err(e) => self.custom.message = Some((false, e)),
         }
     }
 
@@ -798,6 +831,10 @@ impl DesignTab {
         let controls = self.controls.clone();
         let custom = (self.source == Source::Custom).then(|| self.custom.clone());
         self.tune_note = None;
+        if custom.as_ref().is_some_and(|c| c.solid.is_some()) {
+            self.tune_note = Some("tuning scales wires; a mesh model is solved as it is".into());
+            return;
+        }
         self.tune = Some(Job::spawn(ctx, "tune", move |h| {
             let fmt = |mm: f64| format!("{mm}");
             let r = tune_to_resonance(
@@ -988,17 +1025,24 @@ impl DesignTab {
                 }
             }
             ui.horizontal(|ui| {
-                ui.label(legend("NEC file"));
+                ui.label(legend("NEC or STL"));
                 ui.add(
                     egui::TextEdit::singleline(&mut self.custom.path)
-                        .hint_text("path, or drop a .nec file")
+                        .hint_text("path, or drop a .nec or .stl file")
                         .desired_width(150.0),
                 );
                 if ui.button(action("import")).clicked() {
                     let path = self.custom.path.clone();
-                    match std::fs::read_to_string(&path) {
-                        Ok(t) => self.import_text(&t),
-                        Err(e) => self.custom.message = Some((false, format!("{path}: {e}"))),
+                    if path.to_ascii_lowercase().ends_with(".stl") {
+                        match std::fs::read(&path) {
+                            Ok(b) => self.import_stl(&b),
+                            Err(e) => self.custom.message = Some((false, format!("{path}: {e}"))),
+                        }
+                    } else {
+                        match std::fs::read_to_string(&path) {
+                            Ok(t) => self.import_text(&t),
+                            Err(e) => self.custom.message = Some((false, format!("{path}: {e}"))),
+                        }
                     }
                 }
             });
@@ -1303,7 +1347,15 @@ impl DesignTab {
         self.header_card(ui);
         match self.source {
             Source::Custom => {
-                section(ui, "wires", "edit the model directly", |ui| self.custom.editor(ui));
+                if let Some(solid) = &mut self.custom.solid {
+                    let mut back = false;
+                    section(ui, "mesh", "metal from the STL file", |ui| back = solid.editor(ui));
+                    if back {
+                        self.custom.solid = None;
+                    }
+                } else {
+                    section(ui, "wires", "edit the model directly", |ui| self.custom.editor(ui));
+                }
             }
             Source::Template => {
                 let comp = self.computed();

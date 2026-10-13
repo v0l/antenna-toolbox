@@ -10,6 +10,7 @@ mod nearfield;
 mod path;
 mod rich;
 mod slot;
+mod solid;
 mod state;
 mod store;
 mod traces;
@@ -329,6 +330,12 @@ mod tests {
             custom::Ground::Real(antenna_solver::geometry::RealGround::AVERAGE);
         settle(&mut h, 3000);
         h.render().unwrap().save(dir.join("design-custom.png")).unwrap();
+        if let Ok(path) = std::env::var("SHOT_STL") {
+            h.state_mut().design.custom.path = path.clone();
+            h.state_mut().design.import_stl(&std::fs::read(&path).unwrap());
+            settle(&mut h, 6000);
+            h.render().unwrap().save(dir.join("design-stl.png")).unwrap();
+        }
         if let Ok(path) = std::env::var("SHOT_NEC") {
             let text = std::fs::read_to_string(&path).unwrap();
             h.state_mut().design.custom.path = path;

@@ -33,6 +33,7 @@ pub mod polarisation;
 pub mod rational;
 pub mod solve;
 pub mod sommerfeld;
+pub mod stl;
 pub mod surface;
 pub mod symeig;
 pub mod units;

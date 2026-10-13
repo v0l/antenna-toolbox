@@ -7,6 +7,8 @@ use antenna_solver::vec::{Vec3, lerp};
 use egui::Ui;
 use egui_bench::prelude::*;
 
+use crate::solid::Solid;
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Wire {
     pub a: Vec3,
@@ -49,6 +51,7 @@ pub struct Custom {
     pub networks: Vec<(Vec3, Vec3, Network)>,
     pub path: String,
     pub message: Option<(bool, String)>,
+    pub solid: Option<Solid>,
 }
 
 impl Default for Custom {
@@ -64,12 +67,16 @@ impl Default for Custom {
             networks: Vec::new(),
             path: String::new(),
             message: None,
+            solid: None,
         }
     }
 }
 
 impl Custom {
     pub fn key(&self) -> String {
+        if let Some(s) = &self.solid {
+            return format!("solid|{}", s.key());
+        }
         format!(
             "{:?}|{}|{}|{:?}|{:?}|{:?}|{:?}",
             self.wires,
@@ -118,6 +125,9 @@ impl Custom {
     }
 
     pub fn scene(&self, beam: Option<Vec3>) -> Scene {
+        if let Some(solid) = &self.solid {
+            return solid.scene(&self.name, beam);
+        }
         let mut s = Scene {
             wires: self
                 .wires
@@ -228,7 +238,23 @@ impl Custom {
             networks: geo.networks.iter().map(|&(a, b, n)| (at(a), at(b), n)).collect(),
             path: String::new(),
             message: None,
+            solid: None,
         })
+    }
+
+    pub fn import_stl(&mut self, bytes: &[u8]) -> Result<(), String> {
+        let triangles = antenna_solver::stl::parse(bytes)?;
+        let (solid, gap) = Solid::new(triangles);
+        self.message = Some((
+            gap,
+            if gap {
+                format!("imported {} triangles, fed across the gap", solid.raw.len())
+            } else {
+                format!("imported {} triangles in one piece: set the feed points", solid.raw.len())
+            },
+        ));
+        self.solid = Some(solid);
+        Ok(())
     }
 
     pub fn import(&mut self, text: &str, default_radius: f64) -> Result<Option<f64>, String> {
