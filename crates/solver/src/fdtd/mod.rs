@@ -111,19 +111,17 @@ impl Default for Options {
 
 struct Setup {
     sim: engine::Sim,
-    far: Option<ntff::Box>,
+    patches: Option<fieldgrid::fdtd::Patches>,
     freqs: Vec<f64>,
     f0: f64,
     fc: f64,
-    pulse_end: usize,
     grid: mesh::Grid,
 }
 
 fn setup(model: &Model, opts: &Options) -> Result<Setup, String> {
     let port = model.port.ok_or("the model has no port")?;
     let grid = mesh::mesh(model, opts.pml).ok_or("nothing to mesh")?;
-    let mats = engine::Materials::from_model(&grid, model);
-    let sim = engine::Sim::new(grid.clone(), &mats, &model.metal, Some(port));
+    let sim = engine::build(grid.clone(), model, port);
     let f0 = model.f0;
     let fc = f0 * 0.5;
     let freqs: Vec<f64> = (0..opts.points)
@@ -131,14 +129,24 @@ fn setup(model: &Model, opts: &Options) -> Result<Setup, String> {
             f0 * (1.0 - model.span + 2.0 * model.span * i as f64 / (opts.points - 1).max(1) as f64)
         })
         .collect();
-    let far = opts.far_field.then(|| ntff::Box::new(&sim, 3, f0));
-    let (t0, _) = engine::pulse_shape(fc);
-    let pulse_end = (2.0 * t0 / sim.dt) as usize;
-    Ok(Setup { sim, far, freqs, f0, fc, pulse_end, grid })
+    let patches = opts.far_field.then(|| fieldgrid::fdtd::patches(&sim, 3));
+    Ok(Setup { sim, patches, freqs, f0, fc, grid })
 }
 
-fn finish(s: Setup, series: &[f32], stats: Stats) -> Outcome {
+fn extras(s: &Setup, opts: &Options) -> fieldgrid::fdtd::Extras {
+    fieldgrid::fdtd::Extras {
+        max_steps: opts.max_steps,
+        decay_db: opts.decay_db,
+        freqs: if s.patches.is_some() { vec![s.f0] } else { Vec::new() },
+        ntff: s.patches.as_ref().map(|p| p.gpu.clone()),
+        check_every: 500,
+        ..Default::default()
+    }
+}
+
+fn finish(s: Setup, rec: fieldgrid::fdtd::Record, gpu: bool) -> Outcome {
     let dt = s.sim.dt;
+    let series = &rec.series;
     let all: Vec<f64> = s.freqs.iter().copied().chain(std::iter::once(s.f0)).collect();
     let spectra: Vec<(C64, C64)> = all
         .iter()
@@ -160,11 +168,16 @@ fn finish(s: Setup, series: &[f32], stats: Stats) -> Outcome {
     let z: Vec<C64> = spectra.iter().map(|(v, i)| v / i).collect();
     let last = z.len() - 1;
     let (v0, i0) = spectra[last];
+    let far =
+        s.patches.as_ref().filter(|_| !rec.ntff.is_empty()).map(|p| {
+            ntff::Box::new(fieldgrid::fdtd::Far::load(p, &rec.ntff, 1, 0, s.f0, (1.0, 0.0)))
+        });
+    let stats = Stats { cells: s.grid.cells(), steps: rec.steps, dt, decay_db: rec.decay_db, gpu };
     Outcome {
         sweep: Sweep { freqs: s.freqs, z: z[..last].to_vec() },
         z0: z[last],
         p_in: 0.5 * (v0 * i0.conj()).re,
-        far: s.far,
+        far,
         stats,
         grid: s.grid,
     }
@@ -175,39 +188,10 @@ pub fn run(
     opts: &Options,
     mut progress: impl FnMut(usize, f64) -> bool,
 ) -> Result<Outcome, String> {
-    let mut s = setup(model, opts)?;
-    let pulse = engine::gaussian(s.f0, s.fc);
-    let dt = s.sim.dt;
-    let mut series: Vec<f32> = Vec::new();
-    let mut peak: f64 = 0.0;
-    let mut decay = 0.0;
-    let mut steps = 0;
-    for n in 0..opts.max_steps {
-        s.sim.update_h();
-        let th = (n as f64 + 0.5) * dt;
-        let i = s.sim.port_current();
-        s.sim.update_e(pulse(th) as f32);
-        let te = (n as f64 + 1.0) * dt;
-        series.push(s.sim.port_voltage() as f32);
-        series.push(i as f32);
-        if let Some(b) = s.far.as_mut() {
-            b.accumulate(&s.sim, te, th);
-        }
-        steps = n + 1;
-        if n % 200 == 199 {
-            let e = s.sim.energy();
-            peak = peak.max(e);
-            decay = if e > 0.0 && peak > 0.0 { 10.0 * (peak / e).log10() } else { 0.0 };
-            if !progress(n, decay) {
-                return Err("cancelled".into());
-            }
-            if n > s.pulse_end && decay >= opts.decay_db {
-                break;
-            }
-        }
-    }
-    let stats = Stats { cells: s.grid.cells(), steps, dt, decay_db: decay, gpu: false };
-    Ok(finish(s, &series, stats))
+    let s = setup(model, opts)?;
+    let pulse = fieldgrid::fdtd::Pulse { f0: s.f0, fc: s.fc };
+    let rec = fieldgrid::fdtd::run_cpu(&s.sim, 0, &pulse, &extras(&s, opts), &mut progress)?;
+    Ok(finish(s, rec, false))
 }
 
 pub async fn run_gpu(
@@ -215,33 +199,9 @@ pub async fn run_gpu(
     opts: &Options,
     mut progress: impl FnMut(usize, f64) -> bool,
 ) -> Result<Outcome, String> {
-    let mut s = setup(model, opts)?;
-    let g = gpu::GpuFdtd::new(&s.sim, s.far.as_ref(), s.f0, s.fc, opts.max_steps).await?;
-    let chunk = 500;
-    let mut steps = 0;
-    let mut peak: f64 = 0.0;
-    let mut decay = 0.0;
-    while steps < opts.max_steps {
-        let n = chunk.min(opts.max_steps - steps);
-        g.advance(n);
-        steps += n;
-        let e = g.energy().await?;
-        peak = peak.max(e);
-        decay = if e > 0.0 && peak > 0.0 { 10.0 * (peak / e).log10() } else { 0.0 };
-        if !e.is_finite() {
-            return Err("the GPU run went unstable".into());
-        }
-        if !progress(steps, decay) {
-            return Err("cancelled".into());
-        }
-        if steps > s.pulse_end && decay >= opts.decay_db {
-            break;
-        }
-    }
-    let series = g.series(0, steps).await?;
-    if let Some(b) = s.far.as_mut() {
-        b.load(&g.far_field().await?);
-    }
-    let stats = Stats { cells: s.grid.cells(), steps, dt: s.sim.dt, decay_db: decay, gpu: true };
-    Ok(finish(s, &series, stats))
+    let s = setup(model, opts)?;
+    let g = gpu::open().await?;
+    let pulse = fieldgrid::fdtd::Pulse { f0: s.f0, fc: s.fc };
+    let rec = fieldgrid::fdtd::run(&g, &s.sim, 0, &pulse, &extras(&s, opts), &mut progress).await?;
+    Ok(finish(s, rec, true))
 }
