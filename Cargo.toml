@@ -16,6 +16,7 @@ antenna-vna = { path = "crates/vna" }
 antenna-terrain = { path = "crates/terrain" }
 antenna-rf = { path = "crates/rf" }
 antenna-hf = { path = "crates/hf" }
+fieldgrid = { path = "../fieldgrid" }
 num-complex = "0.4"
 rayon = "1.11"
 wgpu = "29"

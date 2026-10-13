@@ -4,11 +4,9 @@ use crate::units::ETA;
 use bytemuck::{Pod, Zeroable};
 use num_complex::Complex64 as C64;
 use std::sync::{Mutex, OnceLock};
-use wgpu::util::DeviceExt;
 
 pub struct Gpu {
-    device: wgpu::Device,
-    queue: wgpu::Queue,
+    gpu: fieldgrid::Gpu,
     pub adapter: String,
     rwg_layout: wgpu::BindGroupLayout,
     rwg_fill: wgpu::ComputePipeline,
@@ -68,34 +66,9 @@ struct RwgUniform {
 
 impl Gpu {
     async fn new() -> Option<Gpu> {
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
-        let adapter = instance
-            .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::HighPerformance,
-                ..Default::default()
-            })
-            .await
-            .ok()?;
-        let info = adapter.get_info();
-        if info.device_type == wgpu::DeviceType::Cpu {
-            return None;
-        }
-        let have = adapter.limits();
-        let want: u64 = 512 * 1024 * 1024;
-        let limits = wgpu::Limits {
-            max_storage_buffer_binding_size: want.min(have.max_storage_buffer_binding_size),
-            max_buffer_size: want.min(have.max_buffer_size),
-            ..wgpu::Limits::downlevel_defaults().using_resolution(have.clone())
-        };
-        let (device, queue) = adapter
-            .request_device(&wgpu::DeviceDescriptor {
-                label: Some("antenna-solver"),
-                required_limits: limits,
-                ..Default::default()
-            })
-            .await
-            .ok()?;
-
+        let options = fieldgrid::gpu::Options { label: "antenna-solver", ..Default::default() };
+        let gpu = fieldgrid::Gpu::open(&options).await.ok()?;
+        let device = &gpu.device;
         let pipe = |layout: &wgpu::BindGroupLayout, module: &wgpu::ShaderModule, name: &str| {
             let pl = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some(name),
@@ -125,47 +98,7 @@ impl Gpu {
         let rwg_mod = module(include_str!("rwg.wgsl"));
         let rwg_fill = pipe(&rwg_layout, &rwg_mod, "fill_rwg");
 
-        Some(Gpu {
-            adapter: format!("{} ({:?})", info.name, info.backend),
-            device,
-            queue,
-            rwg_layout,
-            rwg_fill,
-        })
-    }
-
-    fn storage(&self, contents: &[u8], read_only: bool) -> wgpu::Buffer {
-        let usage = if read_only {
-            wgpu::BufferUsages::STORAGE
-        } else {
-            wgpu::BufferUsages::STORAGE
-                | wgpu::BufferUsages::COPY_SRC
-                | wgpu::BufferUsages::COPY_DST
-        };
-        self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: None,
-            contents,
-            usage,
-        })
-    }
-
-    fn matrix(&self, n: usize) -> wgpu::Buffer {
-        self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("A"),
-            size: (n * (n + 1) * 8) as u64,
-            usage: wgpu::BufferUsages::STORAGE
-                | wgpu::BufferUsages::COPY_SRC
-                | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        })
-    }
-
-    fn uniform(&self, contents: &[u8]) -> wgpu::Buffer {
-        self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: None,
-            contents,
-            usage: wgpu::BufferUsages::UNIFORM,
-        })
+        Some(Gpu { adapter: gpu.name.clone(), gpu, rwg_layout, rwg_fill })
     }
 
     fn dispatch_fill(
@@ -174,7 +107,7 @@ impl Gpu {
         bind: &wgpu::BindGroup,
         n: usize,
     ) -> wgpu::CommandBuffer {
-        let mut enc = self.device.create_command_encoder(&Default::default());
+        let mut enc = self.gpu.device.create_command_encoder(&Default::default());
         {
             let mut pass = enc.begin_compute_pass(&Default::default());
             pass.set_pipeline(pipeline);
@@ -186,29 +119,9 @@ impl Gpu {
     }
 
     fn read_matrix(&self, buf: &wgpu::Buffer, n: usize) -> Result<Vec<C64>, String> {
-        let size = (n * (n + 1) * 8) as u64;
-        let read = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("readback"),
-            size,
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-            mapped_at_creation: false,
-        });
-        let mut enc = self.device.create_command_encoder(&Default::default());
-        enc.copy_buffer_to_buffer(buf, 0, &read, 0, size);
-        self.queue.submit([enc.finish()]);
-        let slice = read.slice(..);
-        let (tx, rx) = std::sync::mpsc::channel();
-        slice.map_async(wgpu::MapMode::Read, move |r| {
-            let _ = tx.send(r);
-        });
-        self.device.poll(wgpu::PollType::wait_indefinitely()).map_err(|e| e.to_string())?;
-        rx.recv().map_err(|e| e.to_string())?.map_err(|e| e.to_string())?;
-        let data = slice.get_mapped_range();
-        let floats: &[f32] = bytemuck::cast_slice(&data);
+        let floats: Vec<f32> = self.gpu.read(buf, 0..2 * n * (n + 1))?;
         let out: Vec<C64> =
             floats.chunks_exact(2).map(|c| C64::new(c[0] as f64, c[1] as f64)).collect();
-        drop(data);
-        read.unmap();
         if out.iter().any(|z| !z.re.is_finite() || !z.im.is_finite()) {
             return Err("GPU produced a non-finite entry".into());
         }
@@ -222,7 +135,7 @@ impl Gpu {
         feed: &[usize],
     ) -> Result<System, String> {
         let n = topo.edges.len();
-        let scope = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let scope = self.gpu.device.push_error_scope(wgpu::ErrorFilter::Validation);
         let v = &topo.mesh.vertices;
         let tri_data: Vec<f32> = topo
             .triangles
@@ -272,10 +185,10 @@ impl Gpu {
             .collect();
         let vert_data: Vec<f32> =
             v.iter().flat_map(|p| [p[0] as f32, p[1] as f32, p[2] as f32, 0.0]).collect();
-        let tri_buf = self.storage(bytemuck::cast_slice(&tri_data), true);
-        let edge_buf = self.storage(bytemuck::cast_slice(&edge_data), true);
-        let vert_buf = self.storage(bytemuck::cast_slice(&vert_data), true);
-        let a_buf = self.matrix(n);
+        let tri_buf = self.gpu.storage("triangles", &tri_data);
+        let edge_buf = self.gpu.storage("edges", &edge_data);
+        let vert_buf = self.gpu.storage("vertices", &vert_data);
+        let a_buf = self.gpu.zeroed("A", (n * (n + 1) * 8) as u64);
         let u = RwgUniform {
             n: n as u32,
             w: (n + 1) as u32,
@@ -286,8 +199,8 @@ impl Gpu {
             pad2: 0.0,
             pad3: 0.0,
         };
-        let u_buf = self.uniform(bytemuck::bytes_of(&u));
-        let bind = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+        let u_buf = self.gpu.uniform("rwg", &u);
+        let bind = self.gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
             layout: &self.rwg_layout,
             entries: &[
@@ -298,7 +211,7 @@ impl Gpu {
                 wgpu::BindGroupEntry { binding: 4, resource: u_buf.as_entire_binding() },
             ],
         });
-        self.queue.submit([self.dispatch_fill(&self.rwg_fill, &bind, n)]);
+        self.gpu.queue.submit([self.dispatch_fill(&self.rwg_fill, &bind, n)]);
         let a_host = self.read_matrix(&a_buf, n)?;
         if let Some(e) = pollster::block_on(scope.pop()) {
             return Err(e.to_string());

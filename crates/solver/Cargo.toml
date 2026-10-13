@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+fieldgrid.workspace = true
 num-complex.workspace = true
 rayon.workspace = true
 wgpu.workspace = true

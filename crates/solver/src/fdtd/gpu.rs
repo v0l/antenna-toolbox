@@ -1,10 +1,8 @@
 use super::engine::Sim;
 use super::ntff;
 use bytemuck::{Pod, Zeroable};
-use std::future::Future;
-use std::pin::Pin;
-use std::sync::{Arc, Mutex};
-use std::task::{Context, Poll, Waker};
+use fieldgrid::Gpu;
+use fieldgrid::gpu::Options;
 use wgpu::util::DeviceExt;
 
 #[repr(C)]
@@ -28,32 +26,8 @@ struct Params {
     cur_d: [f32; 4],
 }
 
-struct Shot<T> {
-    value: Option<T>,
-    waker: Option<Waker>,
-}
-
-struct Oneshot<T>(Arc<Mutex<Shot<T>>>);
-
-impl<T> Future for Oneshot<T> {
-    type Output = T;
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<T> {
-        let Ok(mut s) = self.0.lock() else {
-            return Poll::Pending;
-        };
-        match s.value.take() {
-            Some(v) => Poll::Ready(v),
-            None => {
-                s.waker = Some(cx.waker().clone());
-                Poll::Pending
-            }
-        }
-    }
-}
-
 pub struct GpuFdtd {
-    device: wgpu::Device,
-    queue: wgpu::Queue,
+    gpu: Gpu,
     pipes: Vec<(wgpu::ComputePipeline, Vec<wgpu::BindGroup>, [u32; 3])>,
     energy: (wgpu::ComputePipeline, Vec<wgpu::BindGroup>),
     series: wgpu::Buffer,
@@ -64,19 +38,13 @@ pub struct GpuFdtd {
     pub adapter: String,
 }
 
+fn options() -> Options {
+    Options { label: "fdtd", ..Default::default() }
+}
+
 pub async fn adapter() -> Option<(wgpu::Adapter, String)> {
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
-    let adapter = instance
-        .request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::HighPerformance,
-            ..Default::default()
-        })
-        .await
-        .ok()?;
+    let adapter = fieldgrid::gpu::adapter(&options()).await.ok()?;
     let info = adapter.get_info();
-    if info.device_type == wgpu::DeviceType::Cpu {
-        return None;
-    }
     Some((adapter, format!("{} ({:?})", info.name, info.backend)))
 }
 
@@ -96,20 +64,8 @@ impl GpuFdtd {
         if need > have.max_storage_buffer_binding_size || need > have.max_buffer_size {
             return Err(format!("{} cells is more than this GPU can hold", sim.grid.cells()));
         }
-        let limits = wgpu::Limits {
-            max_storage_buffer_binding_size: have.max_storage_buffer_binding_size,
-            max_buffer_size: have.max_buffer_size,
-            max_storage_buffers_per_shader_stage: have.max_storage_buffers_per_shader_stage.min(8),
-            ..wgpu::Limits::downlevel_defaults().using_resolution(have.clone())
-        };
-        let (device, queue) = adapter
-            .request_device(&wgpu::DeviceDescriptor {
-                label: Some("fdtd"),
-                required_limits: limits,
-                ..Default::default()
-            })
-            .await
-            .map_err(|e| e.to_string())?;
+        let gpu = Gpu::on(adapter, &options()).await?;
+        let device = &gpu.device;
         let storage = |data: &[u8], label: &str| {
             device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some(label),
@@ -270,22 +226,11 @@ impl GpuFdtd {
         }
         pipes.push((p, pg, [1, 1, 1]));
         let energy = make("energy", &[0, 4], &[2]);
-        Ok(GpuFdtd {
-            device,
-            queue,
-            pipes,
-            energy,
-            series,
-            partial,
-            acc,
-            patches,
-            cap,
-            adapter: name,
-        })
+        Ok(GpuFdtd { gpu, pipes, energy, series, partial, acc, patches, cap, adapter: name })
     }
 
     pub fn advance(&self, steps: usize) {
-        let mut enc = self.device.create_command_encoder(&Default::default());
+        let mut enc = self.gpu.device.create_command_encoder(&Default::default());
         {
             let mut pass = enc.begin_compute_pass(&Default::default());
             for _ in 0..steps {
@@ -298,37 +243,7 @@ impl GpuFdtd {
                 }
             }
         }
-        self.queue.submit([enc.finish()]);
-    }
-
-    async fn read(&self, buf: &wgpu::Buffer, offset: u64, size: u64) -> Result<Vec<f32>, String> {
-        let read = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("read"),
-            size,
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-            mapped_at_creation: false,
-        });
-        let mut enc = self.device.create_command_encoder(&Default::default());
-        enc.copy_buffer_to_buffer(buf, offset, &read, 0, size);
-        self.queue.submit([enc.finish()]);
-        let slot = Arc::new(Mutex::new(Shot { value: None, waker: None }));
-        let tx = slot.clone();
-        read.slice(..).map_async(wgpu::MapMode::Read, move |r| {
-            if let Ok(mut s) = tx.lock() {
-                s.value = Some(r);
-                if let Some(w) = s.waker.take() {
-                    w.wake();
-                }
-            }
-        });
-        #[cfg(not(target_arch = "wasm32"))]
-        self.device.poll(wgpu::PollType::wait_indefinitely()).map_err(|e| e.to_string())?;
-        Oneshot(slot).await.map_err(|e| e.to_string())?;
-        let data = read.slice(..).get_mapped_range();
-        let out = bytemuck::cast_slice::<u8, f32>(&data).to_vec();
-        drop(data);
-        read.unmap();
-        Ok(out)
+        self.gpu.queue.submit([enc.finish()]);
     }
 
     pub async fn series(&self, from: usize, to: usize) -> Result<Vec<f32>, String> {
@@ -336,11 +251,11 @@ impl GpuFdtd {
         if to <= from {
             return Ok(Vec::new());
         }
-        self.read(&self.series, (from * 8) as u64, ((to - from) * 8) as u64).await
+        self.gpu.read_async(&self.series, 2 * from..2 * to).await
     }
 
     pub async fn energy(&self) -> Result<f64, String> {
-        let mut enc = self.device.create_command_encoder(&Default::default());
+        let mut enc = self.gpu.device.create_command_encoder(&Default::default());
         {
             let mut pass = enc.begin_compute_pass(&Default::default());
             pass.set_pipeline(&self.energy.0);
@@ -349,8 +264,8 @@ impl GpuFdtd {
             }
             pass.dispatch_workgroups(1024, 1, 1);
         }
-        self.queue.submit([enc.finish()]);
-        let v = self.read(&self.partial, 0, 4096).await?;
+        self.gpu.queue.submit([enc.finish()]);
+        let v: Vec<f32> = self.gpu.read_async(&self.partial, 0..1024).await?;
         Ok(v.iter().map(|x| *x as f64).sum())
     }
 
@@ -358,12 +273,12 @@ impl GpuFdtd {
         if self.patches == 0 {
             return Ok(Vec::new());
         }
-        self.read(&self.acc, 0, (self.patches * 12 * 4) as u64).await
+        self.gpu.read_async(&self.acc, 0..self.patches * 12).await
     }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub fn block_on<T>(f: impl Future<Output = T>) -> T {
+pub fn block_on<T>(f: impl std::future::Future<Output = T>) -> T {
     pollster::block_on(f)
 }
 
