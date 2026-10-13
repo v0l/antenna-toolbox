@@ -4,6 +4,7 @@ Name=Antenna Toolbox
 GenericName=Antenna Designer
 Comment=Antenna modelling, NanoVNA control and radio path planning
 Exec=antenna-toolbox
+Icon=antenna-toolbox
 Terminal=false
 Categories=HamRadio;Science;Electronics;
 Keywords=antenna;nec;vna;nanovna;propagation;splat;yagi;

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-labelledby="t d">
+  <title id="t">Antenna Toolbox</title>
+  <desc id="d">A modelled radiation pattern on a polar grid: the main lobe forward, a small one behind, its bearing marked past the outer ring.</desc>
+  <rect width="64" height="64" rx="14" fill="#0B1014"/>
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="27" cy="32" r="22" stroke="#22333D" stroke-width="1.5"/>
+    <circle cx="27" cy="32" r="12" stroke="#22333D" stroke-width="1.5"/>
+    <path d="M5 32h44M27 10v44" stroke="#22333D" stroke-width="1.5"/>
+    <path d="M27 32C30 24 37 20.5 43 22 50 24 50.5 40 43 42 37 43.5 30 40 27 32Z" stroke="#2FD3E1" stroke-width="3.2"/>
+    <path d="M27 32C24 26 16 27 15 32 16 37 24 38 27 32Z" stroke="#2FD3E1" stroke-width="2.6" opacity=".6"/>
+    <path d="M53.5 32h4.5" stroke="#FFB020" stroke-width="3.2"/>
+  </g>
+</svg>

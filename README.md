@@ -1,8 +1,13 @@
+<img src="assets/icon.svg" width="64" alt="">
+
 # antenna toolbox
 
 A desktop app for designing antennas, measuring them with a NanoVNA and
 planning the radio paths they will be used on. It also runs in the browser at
 [wire-antenna-calc.pages.dev](https://wire-antenna-calc.pages.dev).
+
+Part of the [bench suite](https://github.com/v0l/bench-suite), a launcher that installs, updates
+and starts it alongside the other bench tools.
 
 ![antenna toolbox](docs/screenshot.png)
 
