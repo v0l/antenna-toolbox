@@ -35,7 +35,6 @@ pub mod solve;
 pub mod sommerfeld;
 pub mod stl;
 pub mod surface;
-pub mod symeig;
 pub mod units;
 pub mod vec;
 

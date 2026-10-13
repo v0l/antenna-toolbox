@@ -19,6 +19,7 @@ antenna-hf = { path = "crates/hf" }
 fieldgrid = { git = "https://github.com/v0l/fieldgrid", rev = "8056ef00eebbc609bec669ac7138a92389a9dc8b" }
 num-complex = "0.4"
 rayon = "1.11"
+faer = { version = "0.24", default-features = false, features = ["std", "linalg"] }
 wgpu = "29"
 pollster = "0.4"
 bytemuck = { version = "1.25", features = ["derive"] }

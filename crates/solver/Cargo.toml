@@ -8,9 +8,11 @@ license.workspace = true
 fieldgrid.workspace = true
 num-complex.workspace = true
 rayon.workspace = true
+faer.workspace = true
 wgpu.workspace = true
 bytemuck.workspace = true
 web-time.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+faer = { workspace = true, features = ["rayon"] }
 pollster.workspace = true

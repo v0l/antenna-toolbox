@@ -1,4 +1,5 @@
 use crate::mom::{Model, fill, sommerfeld_correction};
+use faer::prelude::Solve;
 use num_complex::Complex64 as C64;
 
 #[derive(Clone, Debug)]
@@ -37,49 +38,6 @@ pub fn impedance(model: &Model, k: f64) -> (Vec<f64>, Vec<f64>, usize) {
     (r, x, n)
 }
 
-fn lu(mut a: Vec<f64>, n: usize) -> (Vec<f64>, Vec<usize>) {
-    let mut piv: Vec<usize> = (0..n).collect();
-    for c in 0..n {
-        let p =
-            (c..n).max_by(|&i, &j| a[i * n + c].abs().total_cmp(&a[j * n + c].abs())).unwrap_or(c);
-        if p != c {
-            for k in 0..n {
-                a.swap(c * n + k, p * n + k);
-            }
-            piv.swap(c, p);
-        }
-        let d = a[c * n + c];
-        if d == 0.0 {
-            continue;
-        }
-        for r in c + 1..n {
-            let f = a[r * n + c] / d;
-            a[r * n + c] = f;
-            if f != 0.0 {
-                for k in c + 1..n {
-                    a[r * n + k] -= f * a[c * n + k];
-                }
-            }
-        }
-    }
-    (a, piv)
-}
-
-fn lu_solve(f: &(Vec<f64>, Vec<usize>), n: usize, b: &[f64]) -> Vec<f64> {
-    let (a, piv) = f;
-    let mut x: Vec<f64> = piv.iter().map(|&p| b[p]).collect();
-    for r in 0..n {
-        let s: f64 = (0..r).map(|k| a[r * n + k] * x[k]).sum();
-        x[r] -= s;
-    }
-    for r in (0..n).rev() {
-        let s: f64 = (r + 1..n).map(|k| a[r * n + k] * x[k]).sum();
-        let d = a[r * n + r];
-        x[r] = (x[r] - s) / if d == 0.0 { 1e-300 } else { d };
-    }
-    x
-}
-
 fn matvec(m: &[f64], n: usize, v: &[f64]) -> Vec<f64> {
     (0..n).map(|i| (0..n).map(|j| m[i * n + j] * v[j]).sum()).collect()
 }
@@ -92,7 +50,7 @@ pub fn modes(model: &Model, k: f64, count: usize) -> Vec<Mode> {
     let p = (count + 6).min(n);
     let sigma = 0.0137;
     let shifted: Vec<f64> = x.iter().zip(&r).map(|(x, r)| x - sigma * r).collect();
-    let fact = lu(shifted, n);
+    let fact = faer::Mat::from_fn(n, n, |i, j| shifted[i * n + j]).partial_piv_lu();
     let mut vs: Vec<Vec<f64>> = (0..p)
         .map(|c| {
             (0..n)
@@ -103,8 +61,10 @@ pub fn modes(model: &Model, k: f64, count: usize) -> Vec<Mode> {
     let mut last: Vec<f64> = Vec::new();
     let mut ritz: Vec<Mode> = Vec::new();
     for _ in 0..80 {
-        for v in vs.iter_mut() {
-            *v = lu_solve(&fact, n, &matvec(&r, n, v));
+        let rv = faer::Mat::from_fn(n, p, |i, c| (0..n).map(|j| r[i * n + j] * vs[c][j]).sum());
+        let solved = fact.solve(rv);
+        for (c, v) in vs.iter_mut().enumerate() {
+            *v = solved.col(c).iter().copied().collect();
         }
         r_orthonormalise(&mut vs, &r, n);
         ritz = vs
