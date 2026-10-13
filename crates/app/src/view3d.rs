@@ -4,6 +4,9 @@ use antenna_solver::mom::Pattern;
 use antenna_solver::vec::{Vec3, ring};
 use egui::{Align2, Color32, FontId, Pos2, Sense, Shape, Stroke, Ui, Vec2};
 use egui_bench::prelude::*;
+use egui_bench::viewer3d::{self, Camera, Lines, Look, Orbit, Style, Surface, V3, Viewer};
+use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 
 pub struct Quad {
     pub p: [Vec3; 4],
@@ -54,18 +57,26 @@ pub enum Show {
     Both,
 }
 
+const MODEL: usize = 0;
+const PATTERN: usize = 1;
+const TINTED: usize = 2;
+const SHADES: usize = 20;
+
 pub struct View {
-    pub yaw: f32,
-    pub pitch: f32,
-    pub zoom: f32,
-    pub pan: Vec2,
+    pub camera: Camera,
     pub spin: bool,
     pub show: Show,
+    orbit: Orbit,
+    built: Option<(u64, Arc<viewer3d::Scene>)>,
+}
+
+fn start() -> Camera {
+    Camera { yaw: 0.7, pitch: 0.3, ..Camera::default() }
 }
 
 impl Default for View {
     fn default() -> Self {
-        Self { yaw: 0.7, pitch: 0.3, zoom: 1.0, pan: Vec2::ZERO, spin: true, show: Show::Both }
+        Self { camera: start(), spin: true, show: Show::Both, orbit: Orbit::default(), built: None }
     }
 }
 
@@ -97,36 +108,7 @@ pub fn bounds_of(scene: &Scene) -> Bounds {
     Bounds { centre, radius: if radius > 0.0 { radius } else { 1.0 } }
 }
 
-struct Camera {
-    cy: f64,
-    sy: f64,
-    cp: f64,
-    sp: f64,
-    dist: f64,
-    focal: f64,
-    origin: Pos2,
-    centre: Vec3,
-    z_up: bool,
-}
-
-impl Camera {
-    fn upright(&self, p: Vec3) -> Vec3 {
-        if self.z_up { [p[0], p[2], -p[1]] } else { p }
-    }
-
-    fn project(&self, p: Vec3) -> (Pos2, f64) {
-        let (p, c) = (self.upright(p), self.upright(self.centre));
-        let (x, y, z) = (p[0] - c[0], p[1] - c[1], p[2] - c[2]);
-        let x1 = x * self.cy + z * self.sy;
-        let z1 = -x * self.sy + z * self.cy;
-        let y2 = y * self.cp - z1 * self.sp;
-        let z2 = y * self.sp + z1 * self.cp;
-        let f = self.focal / (self.dist + z2).max(self.focal * 0.05);
-        (Pos2::new(self.origin.x + (x1 * f) as f32, self.origin.y - (y2 * f) as f32), z2)
-    }
-}
-
-fn hsla(h: f32, s: f32, l: f32, a: f32) -> Color32 {
+fn hsl(h: f32, s: f32, l: f32) -> V3 {
     let c = (1.0 - (2.0 * l - 1.0).abs()) * s;
     let hp = (h / 60.0).rem_euclid(6.0);
     let x = c * (1.0 - (hp % 2.0 - 1.0).abs());
@@ -139,25 +121,144 @@ fn hsla(h: f32, s: f32, l: f32, a: f32) -> Color32 {
         _ => (c, 0.0, x),
     };
     let m = l - c / 2.0;
-    Color32::from_rgba_unmultiplied(
-        ((r + m) * 255.0) as u8,
-        ((g + m) * 255.0) as u8,
-        ((b + m) * 255.0) as u8,
-        (a * 255.0) as u8,
-    )
+    [r + m, g + m, b + m]
 }
 
-enum Item {
-    Poly { z: f64, pts: Vec<Pos2>, fill: Color32, stroke: Color32 },
-    Seg { z: f64, a: Pos2, b: Pos2, colour: Color32, width: f32 },
+struct Frame {
+    z_up: bool,
 }
 
-impl Item {
-    fn z(&self) -> f64 {
-        match self {
-            Item::Poly { z, .. } | Item::Seg { z, .. } => *z,
+impl Frame {
+    fn of(scene: &Scene) -> Frame {
+        Frame { z_up: scene.up()[2] > 0.5 }
+    }
+
+    fn place(&self, p: Vec3) -> V3 {
+        let p = p.map(|v| v as f32);
+        if self.z_up { p } else { [p[0], -p[2], p[1]] }
+    }
+}
+
+fn rgb(c: Color32) -> V3 {
+    viewer3d::rgb(c)
+}
+
+fn shade(alpha: u8) -> usize {
+    TINTED + ((alpha as usize * SHADES + 127) / 255).min(SHADES - 1)
+}
+
+fn normal(p: &[V3]) -> V3 {
+    let mut n = [0.0f32; 3];
+    for k in 0..p.len() {
+        let (a, b) = (p[k], p[(k + 1) % p.len()]);
+        n[0] += (a[1] - b[1]) * (a[2] + b[2]);
+        n[1] += (a[2] - b[2]) * (a[0] + b[0]);
+        n[2] += (a[0] - b[0]) * (a[1] + b[1]);
+    }
+    viewer3d::norm(n)
+}
+
+fn fan(group: usize, colour: V3, p: &[V3]) -> Surface {
+    let n = normal(p);
+    let mut s = Surface { colour, group, ..Default::default() };
+    for k in 1..p.len().saturating_sub(1) {
+        s.positions.extend([p[0], p[k], p[k + 1]]);
+        s.normals.extend([n; 3]);
+    }
+    s
+}
+
+fn outline(group: usize, colour: V3, width: f32, p: &[V3], closed: bool) -> Lines {
+    let mut segments: Vec<[V3; 2]> = p.windows(2).map(|w| [w[0], w[1]]).collect();
+    if closed && p.len() > 2 {
+        segments.push([p[p.len() - 1], p[0]]);
+    }
+    Lines { segments, colour, group, width, ..Default::default() }
+}
+
+fn signature(scene: &Scene, mesh: Option<&[Quad]>) -> u64 {
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    let mut put = |v: f64| v.to_bits().hash(&mut h);
+    for w in &scene.wires {
+        w.p.iter().flatten().for_each(|v| put(*v));
+        put(w.w as f64 + if w.thin { 0.5 } else { 0.0 });
+        put(u32::from_be_bytes(w.c) as f64);
+    }
+    for p in &scene.polys {
+        p.p.iter().flatten().for_each(|v| put(*v));
+        put(p.fill.map(u32::from_be_bytes).unwrap_or(1) as f64);
+        put(p.stroke.map(u32::from_be_bytes).unwrap_or(1) as f64);
+    }
+    if let Some(m) = &scene.mesh {
+        m.vertices.iter().flatten().for_each(|v| put(*v));
+        put(m.triangles.len() as f64);
+    }
+    scene.pattern_origin.iter().flatten().for_each(|v| put(*v));
+    put(scene.up()[2]);
+    for q in mesh.unwrap_or_default() {
+        q.p.iter().flatten().for_each(|v| put(*v));
+    }
+    put(mesh.map(|m| m.len() as f64).unwrap_or(-1.0));
+    h.finish()
+}
+
+fn build(scene: &Scene, mesh: Option<&[Quad]>, bounds: &Bounds) -> viewer3d::Scene {
+    let frame = Frame::of(scene);
+    let mut out = viewer3d::Scene {
+        centre: frame.place(bounds.centre),
+        radius: (bounds.radius * 1.4) as f32,
+        ..Default::default()
+    };
+    if let Some(mesh) = mesh {
+        let o = scene.pattern_origin.unwrap_or([0.0; 3]);
+        for q in mesh {
+            let p = q.p.map(|v| frame.place([v[0] + o[0], v[1] + o[1], v[2] + o[2]]));
+            let hue = 214.0 - 180.0 * q.v;
+            let light = 0.22 + 0.30 * q.v;
+            out.surfaces.push(fan(PATTERN, hsl(hue, 0.68, light), &p));
+            out.lines.push(outline(PATTERN, hsl(hue, 0.60, light + 0.12), 0.6, &p, true));
         }
     }
+    if let Some(m) = &scene.mesh {
+        let fill = Color32::from_rgba_unmultiplied(232, 178, 58, 51);
+        for t in &m.triangles {
+            let p = t.map(|i| frame.place(m.vertices[i]));
+            out.surfaces.push(fan(shade(fill.a()), rgb(fill), &p));
+            out.lines.push(outline(MODEL, rgb(fill), 0.6, &p, true));
+        }
+    }
+    for poly in &scene.polys {
+        let p: Vec<V3> = poly.p.iter().map(|q| frame.place(*q)).collect();
+        let fill =
+            poly.fill.map(colour).unwrap_or(Color32::from_rgba_unmultiplied(89, 101, 109, 77));
+        let stroke = poly.stroke.map(colour).unwrap_or(Color32::from_rgb(0x59, 0x65, 0x6d));
+        let group = if fill.a() == 255 { MODEL } else { shade(fill.a()) };
+        out.surfaces.push(fan(group, rgb(fill), &p));
+        out.lines.push(outline(MODEL, rgb(stroke), 1.0, &p, true));
+    }
+    for wire in &scene.wires {
+        let p: Vec<V3> = wire.p.iter().map(|q| frame.place(*q)).collect();
+        let width = wire.w * if wire.thin { 0.6 } else { 1.0 };
+        out.lines.push(outline(MODEL, rgb(colour(wire.c)), width, &p, false));
+    }
+    out
+}
+
+fn looks(show: Show) -> Vec<Look> {
+    let model = show != Show::Pattern;
+    let pattern = match show {
+        Show::Wire => 0.0,
+        Show::Pattern => 1.0,
+        Show::Both => 0.5,
+    };
+    let mut looks = vec![Look::HIDDEN; TINTED + SHADES];
+    looks[MODEL] = if model { Look::default() } else { Look::HIDDEN };
+    looks[PATTERN] = Look { opacity: pattern, ..Look::default() };
+    for k in 0..SHADES {
+        let opacity = if model { (k as f32 / SHADES as f32).max(0.05) } else { 0.0 };
+        looks[TINTED + k] = Look { opacity, ..Look::default() };
+    }
+    looks
 }
 
 pub fn show(
@@ -171,136 +272,49 @@ pub fn show(
     let bounds = bounds_of(scene);
     let w = ui.available_width();
     let (rect, resp) = ui.allocate_exact_size(Vec2::new(w, height), Sense::click_and_drag());
-    if resp.dragged() {
+    let key = signature(scene, mesh);
+    let built = match &view.built {
+        Some((k, s)) if *k == key => s.clone(),
+        _ => {
+            let s = Arc::new(build(scene, mesh, &bounds));
+            view.built = Some((key, s.clone()));
+            s
+        }
+    };
+    let shown = if mesh.is_some() { view.show } else { Show::Wire };
+    if resp.double_clicked() {
+        view.camera = start();
+    }
+    let style = Style { background: WELL, ..Style::default() };
+    let mut viewer = Viewer::new(built, view.camera).looks(looks(shown)).style(style);
+    if viewer.navigate(ui, &resp, &mut view.orbit) && resp.dragged() {
         view.spin = false;
-        let d = resp.drag_delta();
-        if ui.input(|i| i.modifiers.shift) {
-            view.pan += d;
-        } else {
-            view.yaw += d.x * 0.008;
-            view.pitch = (view.pitch + d.y * 0.006).clamp(-1.45, 1.45);
-        }
     }
-    if resp.hovered() {
-        let s = ui.input_mut(|i| std::mem::take(&mut i.smooth_scroll_delta).y);
-        if s != 0.0 {
-            view.zoom = (view.zoom * (1.0 + s * 0.002)).clamp(0.3, 6.0);
-        }
-    }
+    view.camera = viewer.camera();
     if view.spin {
-        view.yaw += ui.input(|i| i.stable_dt).min(0.1) * 0.25;
+        view.camera.yaw += ui.input(|i| i.stable_dt).min(0.1) * 0.25;
         ui.ctx().request_repaint();
     }
+    viewer.paint(ui, rect);
+    let frame = Frame::of(scene);
+    let projector = viewer.projector(rect);
+    let at = |q: Vec3| projector.project(frame.place(q));
+    overlays(ui, rect, scene, &bounds, &frame, &at, status);
+}
+
+fn overlays(
+    ui: &Ui,
+    rect: egui::Rect,
+    scene: &Scene,
+    bounds: &Bounds,
+    frame: &Frame,
+    at: &dyn Fn(Vec3) -> Option<Pos2>,
+    status: &str,
+) {
     let p = ui.painter_at(rect);
-    p.rect_filled(rect, 2.0, WELL);
-    let cam = Camera {
-        cy: (view.yaw as f64).cos(),
-        sy: (view.yaw as f64).sin(),
-        cp: (view.pitch as f64).cos(),
-        sp: (view.pitch as f64).sin(),
-        dist: bounds.radius * 10.0,
-        focal: f64::from(rect.width().min(rect.height())) * 4.0 * view.zoom as f64,
-        origin: rect.center() + view.pan,
-        centre: bounds.centre,
-        z_up: scene.up()[2] > 0.5,
-    };
-    let show = if mesh.is_some() { view.show } else { Show::Wire };
-    let mut items = Vec::new();
-    if let (Some(mesh), true) = (mesh, show != Show::Wire) {
-        let o = scene.pattern_origin.unwrap_or([0.0; 3]);
-        let solo = show == Show::Pattern;
-        for q in mesh {
-            let pr: Vec<(Pos2, f64)> =
-                q.p.iter().map(|v| cam.project([v[0] + o[0], v[1] + o[1], v[2] + o[2]])).collect();
-            let hue = 214.0 - 180.0 * q.v;
-            let light = 0.22 + 0.30 * q.v;
-            items.push(Item::Poly {
-                z: pr.iter().map(|x| x.1).sum::<f64>() / 4.0,
-                pts: pr.iter().map(|x| x.0).collect(),
-                fill: hsla(hue, 0.68, light, if solo { 0.92 } else { 0.5 }),
-                stroke: hsla(hue, 0.60, light + 0.12, if solo { 0.5 } else { 0.22 }),
-            });
-        }
-    }
-    if show != Show::Pattern {
-        if let Some(m) = &scene.mesh {
-            for t in &m.triangles {
-                let pr: Vec<(Pos2, f64)> = t.iter().map(|&i| cam.project(m.vertices[i])).collect();
-                items.push(Item::Poly {
-                    z: pr.iter().map(|x| x.1).sum::<f64>() / 3.0,
-                    pts: pr.iter().map(|x| x.0).collect(),
-                    fill: Color32::from_rgba_unmultiplied(232, 178, 58, 51),
-                    stroke: Color32::from_rgba_unmultiplied(232, 178, 58, 140),
-                });
-            }
-        }
-        for poly in &scene.polys {
-            let pr: Vec<(Pos2, f64)> = poly.p.iter().map(|&q| cam.project(q)).collect();
-            items.push(Item::Poly {
-                z: pr.iter().map(|x| x.1).sum::<f64>() / pr.len() as f64,
-                pts: pr.iter().map(|x| x.0).collect(),
-                fill: poly
-                    .fill
-                    .map(colour)
-                    .unwrap_or(Color32::from_rgba_unmultiplied(89, 101, 109, 77)),
-                stroke: poly.stroke.map(colour).unwrap_or(Color32::from_rgb(0x59, 0x65, 0x6d)),
-            });
-        }
-        for wire in &scene.wires {
-            let pr: Vec<(Pos2, f64)> = wire.p.iter().map(|&q| cam.project(q)).collect();
-            for pair in pr.windows(2) {
-                items.push(Item::Seg {
-                    z: (pair[0].1 + pair[1].1) / 2.0,
-                    a: pair[0].0,
-                    b: pair[1].0,
-                    colour: colour(wire.c),
-                    width: wire.w * if wire.thin { 0.6 } else { 1.0 },
-                });
-            }
-        }
-    }
-    items.sort_by(|a, b| b.z().total_cmp(&a.z()));
-    let mut run = egui::Mesh::default();
-    let mut edges: Vec<[Pos2; 2]> = Vec::new();
-    let mut edge_colour = Vec::new();
-    let flush =
-        |run: &mut egui::Mesh, edges: &mut Vec<[Pos2; 2]>, edge_colour: &mut Vec<Color32>| {
-            if !run.is_empty() {
-                p.add(Shape::mesh(std::mem::take(run)));
-            }
-            for (e, c) in edges.drain(..).zip(edge_colour.drain(..)) {
-                p.line_segment(e, Stroke::new(0.6, c));
-            }
-        };
-    for it in items {
-        match it {
-            Item::Poly { pts, fill, stroke, .. } => {
-                let base = run.vertices.len() as u32;
-                for q in &pts {
-                    run.colored_vertex(*q, fill);
-                }
-                for k in 1..pts.len() as u32 - 1 {
-                    run.add_triangle(base, base + k, base + k + 1);
-                }
-                for k in 0..pts.len() {
-                    edges.push([pts[k], pts[(k + 1) % pts.len()]]);
-                    edge_colour.push(stroke);
-                }
-            }
-            Item::Seg { z, a, b, colour, width } => {
-                flush(&mut run, &mut edges, &mut edge_colour);
-                let alpha = (1.0 - z / (bounds.radius * 5.0)).clamp(0.45, 1.0) as f32;
-                p.line_segment([a, b], Stroke::new(width, colour.gamma_multiply(alpha)));
-                p.circle_filled(a, width / 2.0, colour.gamma_multiply(alpha));
-                p.circle_filled(b, width / 2.0, colour.gamma_multiply(alpha));
-            }
-        }
-    }
-    flush(&mut run, &mut edges, &mut edge_colour);
     let green = Color32::from_rgb(0x6f, 0xbf, 0x73);
     let label_font = FontId::proportional(12.0);
-    if let Some(f) = scene.feed {
-        let (q, _) = cam.project(f);
+    if let Some(q) = scene.feed.and_then(at) {
         p.circle_filled(q, 5.0, green);
         p.text(q + Vec2::new(9.0, 0.0), Align2::LEFT_CENTER, "SMA", label_font.clone(), green);
     }
@@ -308,14 +322,14 @@ pub fn show(
         let rr = bounds.radius * 1.15;
         let c = bounds.centre;
         let pts: Vec<Pos2> = ring(64, |a| {
-            if cam.z_up {
+            if frame.z_up {
                 [c[0] + rr * a.cos(), c[1] + rr * a.sin(), scene.omni_y.unwrap_or(c[2])]
             } else {
                 [c[0] + rr * a.cos(), scene.omni_y.unwrap_or(c[1]), c[2] + rr * a.sin()]
             }
         })
         .into_iter()
-        .map(|q| cam.project(q).0)
+        .filter_map(at)
         .collect();
         p.extend(Shape::dashed_line(&pts, Stroke::new(1.0, green), 5.0, 5.0));
         if let Some(east) = pts.iter().max_by(|a, b| a.x.total_cmp(&b.x)) {
@@ -329,17 +343,18 @@ pub fn show(
             bounds.centre
         };
         let r = bounds.radius * 1.5;
-        let (o, _) = cam.project(base);
-        let (t, _) = cam.project([base[0] + bv[0] * r, base[1] + bv[1] * r, base[2] + bv[2] * r]);
-        p.extend(Shape::dashed_line(&[o, t], Stroke::new(1.5, green), 5.0, 4.0));
-        let dir = (t - o).normalized();
-        let side = Vec2::new(-dir.y, dir.x);
-        p.add(Shape::convex_polygon(
-            vec![t, t - dir * 10.0 + side * 4.0, t - dir * 10.0 - side * 4.0],
-            green,
-            Stroke::NONE,
-        ));
-        p.text(t + Vec2::new(8.0, 0.0), Align2::LEFT_CENTER, "beam", label_font, green);
+        let tip = [base[0] + bv[0] * r, base[1] + bv[1] * r, base[2] + bv[2] * r];
+        if let (Some(o), Some(t)) = (at(base), at(tip)) {
+            p.extend(Shape::dashed_line(&[o, t], Stroke::new(1.5, green), 5.0, 4.0));
+            let dir = (t - o).normalized();
+            let side = Vec2::new(-dir.y, dir.x);
+            p.add(Shape::convex_polygon(
+                vec![t, t - dir * 10.0 + side * 4.0, t - dir * 10.0 - side * 4.0],
+                green,
+                Stroke::NONE,
+            ));
+            p.text(t + Vec2::new(8.0, 0.0), Align2::LEFT_CENTER, "beam", label_font, green);
+        }
     }
     p.text(
         Pos2::new(rect.left() + 10.0, rect.bottom() - 10.0),
@@ -369,9 +384,12 @@ pub fn controls(ui: &mut Ui, view: &mut View) {
             view.spin = !view.spin;
         }
         if ui.button(action("reset")).clicked() {
-            let show = view.show;
-            *view = View { show, ..View::default() };
+            view.camera = start();
+            view.spin = true;
         }
-        Line::new().note("drag to orbit · scroll to zoom · shift-drag to pan").size(10.5).show(ui);
+        Line::new()
+            .note("drag to orbit · shift-drag to pan · scroll to zoom · double-click to reset")
+            .size(10.5)
+            .show(ui);
     });
 }

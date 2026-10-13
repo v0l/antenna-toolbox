@@ -1004,12 +1004,15 @@ dependencies = [
 
 [[package]]
 name = "egui_bench"
-version = "0.2.3"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "07e62928ebfe3cd7bd4a6976064f28288565a9e6ca1c43935b3198573bac3eb9"
+checksum = "0d816714add577fe6a942be04a56da13755940cba286e437d0ff7823e5fec355"
 dependencies = [
+ "bytemuck",
  "egui",
+ "egui-wgpu",
  "web-time",
+ "wgpu",
 ]
 
 [[package]]
@@ -1213,6 +1216,7 @@ checksum = "b97b65636e5b9ef369943878ac74335ba1c55c1cb6adbf1e2c293c624248d693"
 [[package]]
 name = "fieldgrid"
 version = "0.1.0"
+source = "git+https://github.com/v0l/fieldgrid?rev=7d0ec7a47ef1022ef3be567468db57623c576b6e#7d0ec7a47ef1022ef3be567468db57623c576b6e"
 dependencies = [
  "bytemuck",
  "pollster",

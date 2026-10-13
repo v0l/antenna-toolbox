@@ -173,6 +173,9 @@ impl eframe::App for App {
 
 pub fn start(cc: &eframe::CreationContext<'_>) -> Box<dyn eframe::App> {
     egui_bench::install(&cc.egui_ctx);
+    if let Some(state) = &cc.wgpu_render_state {
+        egui_bench::viewer3d::install(state);
+    }
     Box::new(App::new())
 }
 
@@ -285,13 +288,20 @@ mod tests {
         assert_eq!(h.state().path.mode, path::PathMode::Broadcast);
     }
 
+    fn prepare(cc: &eframe::CreationContext<'_>) {
+        egui_bench::install(&cc.egui_ctx);
+        if let Some(state) = &cc.wgpu_render_state {
+            egui_bench::viewer3d::install(state);
+        }
+    }
+
     #[test]
     #[ignore = "renders the app to target/shots for a visual check"]
     fn render_every_tab() {
         let tall = std::env::var("SHOT_H").ok().and_then(|v| v.parse().ok()).unwrap_or(1000.0);
         let mut h =
             Harness::builder().with_size(egui::vec2(1400.0, tall)).wgpu().build_eframe(|cc| {
-                egui_bench::install(&cc.egui_ctx);
+                prepare(cc);
                 App::new()
             });
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/shots");
@@ -343,7 +353,7 @@ mod tests {
         let tall = std::env::var("SHOT_H").ok().and_then(|v| v.parse().ok()).unwrap_or(1000.0);
         let mut h =
             Harness::builder().with_size(egui::vec2(1400.0, tall)).wgpu().build_eframe(|cc| {
-                egui_bench::install(&cc.egui_ctx);
+                prepare(cc);
                 App::new()
             });
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/shots");
@@ -390,7 +400,7 @@ mod tests {
         let tall = std::env::var("SHOT_H").ok().and_then(|v| v.parse().ok()).unwrap_or(3600.0);
         let mut h =
             Harness::builder().with_size(egui::vec2(1400.0, tall)).wgpu().build_eframe(|cc| {
-                egui_bench::install(&cc.egui_ctx);
+                prepare(cc);
                 App::new()
             });
         let id = std::env::var("SHOT_DESIGNS").unwrap_or_else(|_| "yagi".into());
@@ -467,7 +477,7 @@ mod tests {
         };
         let mut h =
             Harness::builder().with_size(egui::vec2(1600.0, tall)).wgpu().build_eframe(|cc| {
-                egui_bench::install(&cc.egui_ctx);
+                prepare(cc);
                 App::new()
             });
         let pts = (0..401)
@@ -497,7 +507,7 @@ mod tests {
     fn render_live_vna() {
         let mut h =
             Harness::builder().with_size(egui::vec2(1400.0, 1000.0)).wgpu().build_eframe(|cc| {
-                egui_bench::install(&cc.egui_ctx);
+                prepare(cc);
                 App::new()
             });
         let freq = std::env::var("SHOT_FREQ").ok().and_then(|f| f.parse().ok()).unwrap_or(868.0);
