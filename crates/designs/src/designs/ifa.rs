@@ -109,6 +109,7 @@ fn compute(c: &Ctx) -> Output {
     ];
     let model = Model {
         parts: Vec::new(),
+        wires: Vec::new(),
         metal: metal
             .iter()
             .map(|(lo, hi)| Aabb::new([m(lo[0]), m(lo[1]), m(h)], [m(hi[0]), m(hi[1]), m(h)]))

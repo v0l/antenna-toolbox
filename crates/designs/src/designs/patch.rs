@@ -138,6 +138,7 @@ fn compute(c: &Ctx) -> Output {
     let gw = c.P("board width", w0 + 12.0 * h + lam / 5.0);
     let model = Model {
         parts: Vec::new(),
+        wires: Vec::new(),
         metal: vec![
             Aabb::new([m(-gl / 2.0), m(-gw / 2.0), 0.0], [m(gl / 2.0), m(gw / 2.0), 0.0]),
             Aabb::new([m(-l / 2.0), m(-w / 2.0), m(h)], [m(l / 2.0), m(w / 2.0), m(h)]),

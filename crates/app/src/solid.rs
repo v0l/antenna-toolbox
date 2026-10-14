@@ -122,6 +122,7 @@ impl Solid {
                 stuff: Stuff::Metal,
             }],
             metal: Vec::new(),
+            wires: Vec::new(),
             dielectrics: Vec::new(),
             port: Some(Port { a: m(self.feed[0]), b: m(self.feed[1]), r: 50.0 }),
             f0: f0_hz,
