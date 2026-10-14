@@ -187,13 +187,9 @@ dependencies = [
 name = "antenna-designs"
 version = "0.1.0"
 dependencies = [
- "antenna-solver",
  "rayon",
+ "sims-antenna",
 ]
-
-[[package]]
-name = "antenna-hf"
-version = "0.1.0"
 
 [[package]]
 name = "antenna-rf"
@@ -203,41 +199,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "antenna-solver"
-version = "0.1.0"
-dependencies = [
- "bytemuck",
- "faer",
- "num-complex",
- "pollster",
- "rayon",
- "sims-field",
- "web-time",
- "wgpu",
-]
-
-[[package]]
-name = "antenna-terrain"
-version = "0.1.0"
-dependencies = [
- "dirs",
- "ehttp",
- "memmap2",
- "num-complex",
- "rayon",
- "tiff",
- "ureq",
-]
-
-[[package]]
 name = "antenna-toolbox"
 version = "0.1.0"
 dependencies = [
  "antenna-designs",
- "antenna-hf",
  "antenna-rf",
- "antenna-solver",
- "antenna-terrain",
  "antenna-vna",
  "dirs",
  "eframe",
@@ -249,6 +215,9 @@ dependencies = [
  "js-sys",
  "parking_lot_core",
  "rayon",
+ "sims-antenna",
+ "sims-hf",
+ "sims-propagation",
  "ureq",
  "wasm-bindgen",
  "wasm-bindgen-futures",
@@ -3695,9 +3664,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e"
 
 [[package]]
+name = "sims-antenna"
+version = "0.1.0"
+source = "git+https://github.com/v0l/sims?rev=b72319631ff05082bb3642b92b8cceafe850f357#b72319631ff05082bb3642b92b8cceafe850f357"
+dependencies = [
+ "bytemuck",
+ "faer",
+ "num-complex",
+ "pollster",
+ "rayon",
+ "sims-field",
+ "sims-progress",
+ "web-time",
+ "wgpu",
+]
+
+[[package]]
 name = "sims-field"
 version = "0.1.0"
-source = "git+https://github.com/v0l/sims?rev=55e5363796275454b35308334fae5b89e3e89aa4#55e5363796275454b35308334fae5b89e3e89aa4"
+source = "git+https://github.com/v0l/sims?rev=b72319631ff05082bb3642b92b8cceafe850f357#b72319631ff05082bb3642b92b8cceafe850f357"
 dependencies = [
  "bytemuck",
  "pollster",
@@ -3707,11 +3692,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "sims-hf"
+version = "0.1.0"
+source = "git+https://github.com/v0l/sims?rev=b72319631ff05082bb3642b92b8cceafe850f357#b72319631ff05082bb3642b92b8cceafe850f357"
+
+[[package]]
 name = "sims-progress"
 version = "0.1.0"
-source = "git+https://github.com/v0l/sims?rev=55e5363796275454b35308334fae5b89e3e89aa4#55e5363796275454b35308334fae5b89e3e89aa4"
+source = "git+https://github.com/v0l/sims?rev=b72319631ff05082bb3642b92b8cceafe850f357#b72319631ff05082bb3642b92b8cceafe850f357"
 dependencies = [
  "web-time",
+]
+
+[[package]]
+name = "sims-propagation"
+version = "0.1.0"
+source = "git+https://github.com/v0l/sims?rev=b72319631ff05082bb3642b92b8cceafe850f357#b72319631ff05082bb3642b92b8cceafe850f357"
+dependencies = [
+ "dirs",
+ "ehttp",
+ "memmap2",
+ "num-complex",
+ "rayon",
+ "sims-progress",
+ "tiff",
+ "ureq",
 ]
 
 [[package]]

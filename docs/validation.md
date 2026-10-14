@@ -1,21 +1,23 @@
 # Validation
 
-Each ported model is checked against the reference implementation it came from.
+Each ported model is checked against the reference implementation it came from. The solvers live
+in [v0l/sims](https://github.com/v0l/sims): `terrain` is `sims-propagation`, `hf` is `sims-hf` and
+`solver` is `sims-antenna`, and the tests below are in those crates.
 
 | Model | Reference | Test | Agreement |
 |---|---|---|---|
-| Longley-Rice ITM | NTIA ITM v1.4, SPLAT! 1.4.2 | `terrain::itm` | 0.01 dB on NTIA p2p cases |
-| ITU-R P.528 | NTIA p528 | `terrain::p528` | 0.01 dB on 400 paths |
-| ITU-R P.452-18 | Py452 validation set | `terrain::p452` | 2e-7 dB on 595 cases |
-| ITU-R P.2108 | NTIA p2108 test data | `terrain::p2108` | every row |
-| ITU-R P.533-14, P.372 | ITURHFProp 14.2 | `hf/tests/p533.rs` | 0.005 on 1200 cases (the printed precision) |
-| Near fields | nec2c NE/NH cards | `solver/tests/validate.rs` | 1% |
-| Characteristic modes | scipy `eig(X, R)` | `solver/tests/validate.rs` | 1e-3 |
+| Longley-Rice ITM | NTIA ITM v1.4, SPLAT! 1.4.2 | `sims_propagation::itm` | 0.01 dB on NTIA p2p cases |
+| ITU-R P.528 | NTIA p528 | `sims_propagation::p528` | 0.01 dB on 400 paths |
+| ITU-R P.452-18 | Py452 validation set | `sims_propagation::p452` | 2e-7 dB on 595 cases |
+| ITU-R P.2108 | NTIA p2108 test data | `sims_propagation::p2108` | every row |
+| ITU-R P.533-14, P.372 | ITURHFProp 14.2 | `sims-hf/tests/p533.rs` | 0.005 on 1200 cases (the printed precision) |
+| Near fields | nec2c NE/NH cards | `sims-antenna/tests/validate.rs` | 1% |
+| Characteristic modes | scipy `eig(X, R)` | `sims-antenna/tests/validate.rs` | 1e-3 |
 | Matching networks | Pozar examples 5.1, 5.2 | `rf::synth` | textbook rounding |
-| FDTD, empty cavity | analytic resonances | `solver::fdtd::engine` | 0.4% on five modes |
-| FDTD, dipole | energy balance, MoM | `solver/tests/fdtd.rs` | 1% power, 2.15 dBi |
-| FDTD, microstrip patch | Sheen et al. 1990, measured 7.5 GHz | `solver/tests/fdtd.rs` | within 1.5% |
-| FDTD GPU | the CPU engine | `solver/tests/fdtd.rs` | 1% |
+| FDTD, empty cavity | analytic resonances | `sims_antenna::fdtd::engine` | 0.4% on five modes |
+| FDTD, dipole | energy balance, MoM | `sims-antenna/tests/fdtd.rs` | 1% power, 2.15 dBi |
+| FDTD, microstrip patch | Sheen et al. 1990, measured 7.5 GHz | `sims-antenna/tests/fdtd.rs` | within 1.5% |
+| FDTD GPU | the CPU engine | `sims-antenna/tests/fdtd.rs` | 1% |
 
 ## Known departures from the Recommendations
 
