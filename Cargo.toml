@@ -10,12 +10,12 @@ repository = "https://github.com/v0l/antenna-toolbox"
 description = "Antenna modelling, NanoVNA control and radio path planning"
 
 [workspace.dependencies]
-antenna-solver = { package = "sims-antenna", git = "https://github.com/v0l/sims", rev = "b45568d325d9137da04e487cf7ca0819ab06aae4" }
+antenna-solver = { package = "sims-antenna", git = "https://github.com/v0l/sims", rev = "ff342bc2bc39eb56172d2c5dc5fc06f5b24e24ac" }
 antenna-designs = { path = "crates/designs" }
 antenna-vna = { path = "crates/vna" }
-antenna-terrain = { package = "sims-propagation", git = "https://github.com/v0l/sims", rev = "b45568d325d9137da04e487cf7ca0819ab06aae4" }
+antenna-terrain = { package = "sims-propagation", git = "https://github.com/v0l/sims", rev = "ff342bc2bc39eb56172d2c5dc5fc06f5b24e24ac" }
 antenna-rf = { path = "crates/rf" }
-antenna-hf = { package = "sims-hf", git = "https://github.com/v0l/sims", rev = "b45568d325d9137da04e487cf7ca0819ab06aae4" }
+antenna-hf = { package = "sims-hf", git = "https://github.com/v0l/sims", rev = "ff342bc2bc39eb56172d2c5dc5fc06f5b24e24ac" }
 num-complex = "0.4"
 rayon = "1.11"
 serialport = "4.10"

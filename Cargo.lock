@@ -3666,7 +3666,7 @@ checksum = "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e"
 [[package]]
 name = "sims-antenna"
 version = "0.1.0"
-source = "git+https://github.com/v0l/sims?rev=b45568d325d9137da04e487cf7ca0819ab06aae4#b45568d325d9137da04e487cf7ca0819ab06aae4"
+source = "git+https://github.com/v0l/sims?rev=ff342bc2bc39eb56172d2c5dc5fc06f5b24e24ac#ff342bc2bc39eb56172d2c5dc5fc06f5b24e24ac"
 dependencies = [
  "bytemuck",
  "faer",
@@ -3682,7 +3682,7 @@ dependencies = [
 [[package]]
 name = "sims-field"
 version = "0.1.0"
-source = "git+https://github.com/v0l/sims?rev=b45568d325d9137da04e487cf7ca0819ab06aae4#b45568d325d9137da04e487cf7ca0819ab06aae4"
+source = "git+https://github.com/v0l/sims?rev=ff342bc2bc39eb56172d2c5dc5fc06f5b24e24ac#ff342bc2bc39eb56172d2c5dc5fc06f5b24e24ac"
 dependencies = [
  "bytemuck",
  "pollster",
@@ -3694,12 +3694,12 @@ dependencies = [
 [[package]]
 name = "sims-hf"
 version = "0.1.0"
-source = "git+https://github.com/v0l/sims?rev=b45568d325d9137da04e487cf7ca0819ab06aae4#b45568d325d9137da04e487cf7ca0819ab06aae4"
+source = "git+https://github.com/v0l/sims?rev=ff342bc2bc39eb56172d2c5dc5fc06f5b24e24ac#ff342bc2bc39eb56172d2c5dc5fc06f5b24e24ac"
 
 [[package]]
 name = "sims-progress"
 version = "0.1.0"
-source = "git+https://github.com/v0l/sims?rev=b45568d325d9137da04e487cf7ca0819ab06aae4#b45568d325d9137da04e487cf7ca0819ab06aae4"
+source = "git+https://github.com/v0l/sims?rev=ff342bc2bc39eb56172d2c5dc5fc06f5b24e24ac#ff342bc2bc39eb56172d2c5dc5fc06f5b24e24ac"
 dependencies = [
  "web-time",
 ]
@@ -3707,7 +3707,7 @@ dependencies = [
 [[package]]
 name = "sims-propagation"
 version = "0.1.0"
-source = "git+https://github.com/v0l/sims?rev=b45568d325d9137da04e487cf7ca0819ab06aae4#b45568d325d9137da04e487cf7ca0819ab06aae4"
+source = "git+https://github.com/v0l/sims?rev=ff342bc2bc39eb56172d2c5dc5fc06f5b24e24ac#ff342bc2bc39eb56172d2c5dc5fc06f5b24e24ac"
 dependencies = [
  "dirs",
  "ehttp",
