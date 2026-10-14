@@ -6,6 +6,8 @@ All notable changes to Antenna Toolbox are listed here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-14
+
 ### Added
 - A random wire on a 9:1 unun template.
 - FDTD models can be built from meshed parts and imported STL files.
@@ -36,5 +38,6 @@ First release, on the desktop and in the browser.
 - Browser build with threads and WebGPU.
 - Release builds with installers.
 
-[Unreleased]: https://github.com/v0l/antenna-toolbox/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/v0l/antenna-toolbox/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/v0l/antenna-toolbox/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/v0l/antenna-toolbox/releases/tag/v0.1.0
