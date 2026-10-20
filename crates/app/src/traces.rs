@@ -324,7 +324,8 @@ pub fn show(
 pub fn controls(ui: &mut Ui, traces: &mut [Trace], pts: &[Point], z0: f64) {
     egui::Grid::new("traces").num_columns(6).spacing([10.0, 4.0]).show(ui, |ui| {
         for (i, t) in traces.iter_mut().enumerate() {
-            if chip(ui, &format!("CH{i}"), t.colour, t.on).interact(egui::Sense::click()).clicked() {
+            if chip(ui, &format!("CH{i}"), t.colour, t.on).interact(egui::Sense::click()).clicked()
+            {
                 t.on = !t.on;
             }
             let mut kind = t.kind;

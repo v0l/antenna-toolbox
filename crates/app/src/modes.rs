@@ -12,13 +12,7 @@ use std::f64::consts::PI;
 const SHOWN: usize = 5;
 const STEPS: usize = 15;
 
-const COLOURS: [Color32; SHOWN] = [
-    TRACE,
-    READOUT,
-    OK,
-    FAULT,
-    Color32::from_rgb(0xba, 0x68, 0xc8),
-];
+const COLOURS: [Color32; SHOWN] = [TRACE, READOUT, OK, FAULT, Color32::from_rgb(0xba, 0x68, 0xc8)];
 
 pub struct Found {
     key: String,

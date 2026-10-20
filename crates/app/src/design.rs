@@ -1027,9 +1027,15 @@ impl DesignTab {
             ui.horizontal(|ui| {
                 ui.label(legend("NEC or STL"));
                 let mut import = false;
-                field_then(ui, &mut self.custom.path, "path, or drop a .nec or .stl file", 90.0, |ui| {
-                    import = ui.add(Key::new("import").outline(VALUE)).clicked();
-                });
+                field_then(
+                    ui,
+                    &mut self.custom.path,
+                    "path, or drop a .nec or .stl file",
+                    90.0,
+                    |ui| {
+                        import = ui.add(Key::new("import").outline(VALUE)).clicked();
+                    },
+                );
                 if import {
                     let path = self.custom.path.clone();
                     if path.to_ascii_lowercase().ends_with(".stl") {
@@ -1550,7 +1556,8 @@ impl DesignTab {
         };
         section(ui, "hf bands", "worst SWR across each band", |ui| {
             let after = if transforms.is_some() { "matched" } else { "" };
-            let columns = [("band", 60.0), ("MHz", 90.0), ("bare", 60.0), (after, 70.0), ("", 90.0)];
+            let columns =
+                [("band", 60.0), ("MHz", 90.0), ("bare", 60.0), (after, 70.0), ("", 90.0)];
             Table::new(&columns, self.bands.len()).show(ui, |i, p, row, at| {
                 let b = &self.bands[i];
                 let bare = worst(b, None);
@@ -1559,7 +1566,14 @@ impl DesignTab {
                 cell(p, row, at(0), 60.0, b.band.name, VALUE);
                 cell(p, row, at(1), 90.0, &format!("{}-{}", b.band.low, b.band.high), VALUE);
                 cell(p, row, at(2), 60.0, &format!("{bare:.1}"), VALUE);
-                cell(p, row, at(3), 70.0, &shown.map(|s| format!("{s:.1}")).unwrap_or_default(), VALUE);
+                cell(
+                    p,
+                    row,
+                    at(3),
+                    70.0,
+                    &shown.map(|s| format!("{s:.1}")).unwrap_or_default(),
+                    VALUE,
+                );
                 cell(p, row, at(4), 90.0, verdict, colour);
             });
             hint(
