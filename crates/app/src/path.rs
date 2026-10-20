@@ -640,7 +640,7 @@ impl PathTab {
         section(ui, "link", "budget, one way", |ui| {
             ui.horizontal_wrapped(|ui| {
                 for preset in &PRESETS {
-                    if ui.button(action(preset.name)).clicked() {
+                    if ui.add(Key::new(preset.name).outline(VALUE)).clicked() {
                         self.apply(preset);
                     }
                 }
@@ -815,17 +815,17 @@ impl PathTab {
             });
             ui.horizontal(|ui| {
                 if self.cov_job.is_some() {
-                    if ui.button(action("stop")).clicked() {
+                    if ui.add(Key::new("stop").outline(VALUE)).clicked() {
                         self.cov_job = None;
                     }
-                } else if ui.button(action("map coverage")).clicked() {
+                } else if ui.add(Key::new("map coverage").outline(VALUE)).clicked() {
                     self.start_coverage(ui.ctx());
                 }
                 if self.coverage.is_some() {
                     if toggle(ui, "show", self.show_coverage).clicked() {
                         self.show_coverage = !self.show_coverage;
                     }
-                    if ui.button(action("clear")).clicked() {
+                    if ui.add(Key::new("clear").outline(VALUE)).clicked() {
                         self.coverage = None;
                     }
                 }
@@ -1045,12 +1045,12 @@ impl PathTab {
         drawn.response.context_menu(|ui| {
             if let Some(ll) = picked {
                 Line::new().note(format!("{:.5}, {:.5}", ll.0, ll.1)).size(10.5).show(ui);
-                if ui.button(action("put the antenna here")).clicked() {
+                if ui.add(Key::new("put the antenna here").outline(VALUE)).clicked() {
                     self.site = ll;
                     ui.close();
                 }
                 if mode != PathMode::Broadcast
-                    && ui.button(action("put the far end here")).clicked()
+                    && ui.add(Key::new("put the far end here").outline(VALUE)).clicked()
                 {
                     self.target = ll;
                     ui.close();

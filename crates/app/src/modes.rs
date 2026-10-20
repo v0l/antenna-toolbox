@@ -13,10 +13,10 @@ const SHOWN: usize = 5;
 const STEPS: usize = 15;
 
 const COLOURS: [Color32; SHOWN] = [
-    Color32::from_rgb(0x4f, 0xc3, 0xf7),
-    Color32::from_rgb(0xe8, 0xb2, 0x3a),
-    Color32::from_rgb(0x6f, 0xbf, 0x73),
-    Color32::from_rgb(0xe5, 0x73, 0x73),
+    TRACE,
+    READOUT,
+    OK,
+    FAULT,
     Color32::from_rgb(0xba, 0x68, 0xc8),
 ];
 
@@ -166,7 +166,7 @@ impl ModesPanel {
             ui.horizontal(|ui| {
                 let label =
                     if self.found.is_some() && !stale { "find again" } else { "find modes" };
-                if ui.button(action(label)).clicked() {
+                if ui.add(Key::new(label).outline(VALUE)).clicked() {
                     self.start(&ctx, geo.clone(), freq, span, wire, key.to_string());
                 }
                 if self.job.is_some() {
@@ -197,10 +197,11 @@ impl ModesPanel {
                 }
                 ui.end_row();
                 for (i, m) in f.centre.iter().enumerate() {
-                    let text = egui::RichText::new(format!("J{}", i + 1))
-                        .color(COLOURS[i % SHOWN])
-                        .monospace();
-                    if ui.add(egui::Button::selectable(self.pick == i, text)).clicked() {
+                    let tint = COLOURS[i % SHOWN];
+                    if chip(ui, &format!("J{}", i + 1), tint, self.pick == i)
+                        .interact(egui::Sense::click())
+                        .clicked()
+                    {
                         self.pick = i;
                     }
                     ui.label(value(format!("{:+.3}", m.lambda)));
@@ -232,7 +233,7 @@ impl ModesPanel {
                     log_y: false,
                     y_ticks: vec![0.0, 0.25, 0.5, 0.707, 1.0],
                     x_label: "MHz · modal significance".into(),
-                    rules: vec![(freq, Color32::from_rgb(0x4f, 0xa3, 0xc7))],
+                    rules: vec![(freq, TRACE)],
                     h_rules: vec![(std::f64::consts::FRAC_1_SQRT_2, READOUT_DIM)],
                     marks: Vec::new(),
                     height: 180.0,

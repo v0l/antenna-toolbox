@@ -2,7 +2,7 @@ use crate::drawing::colour;
 use antenna_designs::Scene;
 use antenna_solver::mom::Pattern;
 use antenna_solver::vec::{Vec3, ring};
-use egui::{Align2, Color32, FontId, Pos2, Sense, Shape, Stroke, Ui, Vec2};
+use egui::{Align2, Color32, Pos2, Sense, Shape, Stroke, Ui, Vec2};
 use egui_bench::prelude::*;
 use egui_bench::viewer3d::{self, Camera, Lines, Look, Orbit, Style, Surface, V3, Viewer};
 use std::hash::{Hash, Hasher};
@@ -312,8 +312,8 @@ fn overlays(
     status: &str,
 ) {
     let p = ui.painter_at(rect);
-    let green = Color32::from_rgb(0x6f, 0xbf, 0x73);
-    let label_font = FontId::proportional(12.0);
+    let green = OK;
+    let label_font = theme::legend_font(12.0);
     if let Some(q) = scene.feed.and_then(at) {
         p.circle_filled(q, 5.0, green);
         p.text(q + Vec2::new(9.0, 0.0), Align2::LEFT_CENTER, "SMA", label_font.clone(), green);
@@ -383,7 +383,7 @@ pub fn controls(ui: &mut Ui, view: &mut View) {
         if toggle(ui, "spin", view.spin).clicked() {
             view.spin = !view.spin;
         }
-        if ui.button(action("reset")).clicked() {
+        if ui.add(Key::new("reset").outline(VALUE)).clicked() {
             view.camera = start();
             view.spin = true;
         }

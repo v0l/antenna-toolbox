@@ -150,13 +150,14 @@ impl NearPanel {
             );
         });
         ui.horizontal_wrapped(|ui| {
-            egui::ComboBox::from_id_salt("exposure-standard")
-                .selected_text(self.standard.label())
-                .show_ui(ui, |ui| {
-                    for s in Standard::ALL {
-                        ui.selectable_value(&mut self.standard, s, s.label());
-                    }
-                });
+            ui.allocate_ui(egui::vec2(180.0, 24.0), |ui| {
+                choice(
+                    ui,
+                    "exposure-standard",
+                    &mut self.standard,
+                    Standard::ALL.into_iter().map(|s| (s, s.label().to_string())),
+                );
+            });
             for (p, l) in [
                 (Plane::Across, "horizontal"),
                 (Plane::AlongA, "upright 1"),

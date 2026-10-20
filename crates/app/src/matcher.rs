@@ -211,14 +211,14 @@ impl Matcher {
             ui.label(legend("cap Q"));
             ui.add(egui::DragValue::new(&mut self.q_c).range(10.0..=10000.0).speed(10.0));
             ui.label(legend("cable"));
-            egui::ComboBox::from_id_salt("match-cable").selected_text(self.cable().name).show_ui(
-                ui,
-                |ui| {
-                    for (i, c) in CABLES.iter().enumerate() {
-                        ui.selectable_value(&mut self.cable, i, c.name);
-                    }
-                },
-            );
+            ui.allocate_ui(egui::vec2(150.0, 24.0), |ui| {
+                choice(
+                    ui,
+                    "match-cable",
+                    &mut self.cable,
+                    CABLES.iter().enumerate().map(|(i, c)| (i, c.name.to_string())),
+                );
+            });
         });
     }
 
@@ -235,7 +235,7 @@ impl Matcher {
             log_y: log,
             y_ticks: ticks,
             x_label: "MHz · SWR".into(),
-            rules: vec![(f_hz / 1e6, Color32::from_rgb(0x4f, 0xa3, 0xc7))],
+            rules: vec![(f_hz / 1e6, TRACE)],
             h_rules: vec![(2.0, READOUT_DIM)],
             marks: Vec::new(),
             height: 160.0,

@@ -797,10 +797,10 @@ impl DesignTab {
             });
             ui.horizontal(|ui| {
                 if self.opt.is_none() {
-                    if ui.button(action("optimise")).clicked() {
+                    if ui.add(Key::new("optimise").outline(VALUE)).clicked() {
                         self.start_optimise(&ctx, params);
                     }
-                } else if ui.button(action("stop")).clicked() {
+                } else if ui.add(Key::new("stop").outline(VALUE)).clicked() {
                     self.opt = None;
                 }
             });
@@ -1020,18 +1020,17 @@ impl DesignTab {
                     ui.add_space(4.0);
                 }
                 let wire_only = !matches!(self.design.build, Build::Sheet | Build::Pcb);
-                if ui.add_enabled(wire_only, egui::Button::new(action("edit as wires"))).clicked() {
+                if ui.add(Key::new("edit as wires").outline(VALUE).enabled(wire_only)).clicked() {
                     self.open_template_as_wires();
                 }
             }
             ui.horizontal(|ui| {
                 ui.label(legend("NEC or STL"));
-                ui.add(
-                    egui::TextEdit::singleline(&mut self.custom.path)
-                        .hint_text("path, or drop a .nec or .stl file")
-                        .desired_width(150.0),
-                );
-                if ui.button(action("import")).clicked() {
+                let mut import = false;
+                field_then(ui, &mut self.custom.path, "path, or drop a .nec or .stl file", 90.0, |ui| {
+                    import = ui.add(Key::new("import").outline(VALUE)).clicked();
+                });
+                if import {
                     let path = self.custom.path.clone();
                     if path.to_ascii_lowercase().ends_with(".stl") {
                         match std::fs::read(&path) {
@@ -1047,10 +1046,10 @@ impl DesignTab {
                 }
             });
             ui.horizontal(|ui| {
-                if ui.button(action("export NEC-2 deck")).clicked() {
+                if ui.add(Key::new("export NEC-2 deck").outline(VALUE)).clicked() {
                     self.export_nec();
                 }
-                if ui.button(action("export pattern")).clicked() {
+                if ui.add(Key::new("export pattern").outline(VALUE)).clicked() {
                     self.export_pattern();
                 }
             });
@@ -1080,7 +1079,7 @@ impl DesignTab {
                     } else {
                         format!("{}", f.round())
                     };
-                    if ui.small_button(label).clicked() {
+                    if ui.add(Key::new(label).outline(VALUE)).clicked() {
                         self.freq = f;
                     }
                 }
@@ -1097,7 +1096,7 @@ impl DesignTab {
                 });
                 ui.horizontal_wrapped(|ui| {
                     for (name, mm) in WIRE_PRESETS {
-                        if ui.small_button(format!("{name} {mm}")).clicked() {
+                        if ui.add(Key::new(format!("{name} {mm}")).outline(VALUE)).clicked() {
                             self.wire = mm;
                         }
                     }
@@ -1208,7 +1207,7 @@ impl DesignTab {
             });
             ui.horizontal(|ui| {
                 for z in [50.0, 75.0, 100.0, 200.0, 300.0] {
-                    if ui.small_button(format!("{z} Ω")).clicked() {
+                    if ui.add(Key::new(format!("{z} Ω")).outline(VALUE)).clicked() {
                         self.z0 = z;
                     }
                 }
@@ -1285,9 +1284,8 @@ impl DesignTab {
                     rich::inline(ui, self.design.polarisation, 12.5, LEGEND);
                 }
                 Source::Custom => {
-                    ui.horizontal(|ui| {
-                        ui.label(legend("name"));
-                        ui.text_edit_singleline(&mut self.custom.name);
+                    row(ui, "name", |ui| {
+                        field(ui, &mut self.custom.name, "");
                     });
                 }
             },
@@ -1387,7 +1385,7 @@ impl DesignTab {
                     let design = self.design;
                     section(ui, "cut file", "DXF, millimetres", |ui| {
                         note(ui, &cut.note, LEGEND);
-                        if ui.button(action("save DXF")).clicked() {
+                        if ui.add(Key::new("save DXF").outline(VALUE)).clicked() {
                             let text = cut_to_dxf(&cut, design.name, self.freq);
                             let file = dxf_filename(design.name, self.freq);
                             self.note = Some(crate::store::download(&file, &text));
@@ -1551,23 +1549,18 @@ impl DesignTab {
                 .fold(1.0, f64::max)
         };
         section(ui, "hf bands", "worst SWR across each band", |ui| {
-            egui::Grid::new("band-table").num_columns(5).spacing([14.0, 3.0]).show(ui, |ui| {
-                let after = if transforms.is_some() { "matched" } else { "" };
-                for h in ["band", "MHz", "bare", after, ""] {
-                    ui.label(legend(h));
-                }
-                ui.end_row();
-                for b in &self.bands {
-                    let bare = worst(b, None);
-                    let shown = transforms.as_ref().map(|m| worst(b, Some(m)));
-                    let (verdict, colour) = tuner_reach(shown.unwrap_or(bare));
-                    ui.label(value(b.band.name));
-                    ui.label(value(format!("{}-{}", b.band.low, b.band.high)));
-                    ui.label(value(format!("{bare:.1}")));
-                    ui.label(value(shown.map(|s| format!("{s:.1}")).unwrap_or_default()));
-                    ui.label(value(verdict).color(colour));
-                    ui.end_row();
-                }
+            let after = if transforms.is_some() { "matched" } else { "" };
+            let columns = [("band", 60.0), ("MHz", 90.0), ("bare", 60.0), (after, 70.0), ("", 90.0)];
+            Table::new(&columns, self.bands.len()).show(ui, |i, p, row, at| {
+                let b = &self.bands[i];
+                let bare = worst(b, None);
+                let shown = transforms.as_ref().map(|m| worst(b, Some(m)));
+                let (verdict, colour) = tuner_reach(shown.unwrap_or(bare));
+                cell(p, row, at(0), 60.0, b.band.name, VALUE);
+                cell(p, row, at(1), 90.0, &format!("{}-{}", b.band.low, b.band.high), VALUE);
+                cell(p, row, at(2), 60.0, &format!("{bare:.1}"), VALUE);
+                cell(p, row, at(3), 70.0, &shown.map(|s| format!("{s:.1}")).unwrap_or_default(), VALUE);
+                cell(p, row, at(4), 90.0, verdict, colour);
             });
             hint(
                 ui,
@@ -1591,7 +1584,7 @@ impl DesignTab {
                     log_y: false,
                     y_ticks: charts::nice_ticks(lo, hi, 5),
                     x_label: "MHz · dBi".into(),
-                    rules: vec![(freq, Color32::from_rgb(0x4f, 0xa3, 0xc7))],
+                    rules: vec![(freq, TRACE)],
                     h_rules: Vec::new(),
                     marks: Vec::new(),
                     height: 180.0,
@@ -1645,9 +1638,10 @@ impl DesignTab {
                 if pcb {
                     let found = (!self.sweeping).then(|| self.solved_resonance()).flatten();
                     if ui
-                        .add_enabled(
-                            found.is_some(),
-                            egui::Button::new(action("scale to the solved resonance")),
+                        .add(
+                            Key::new("scale to the solved resonance")
+                                .outline(VALUE)
+                                .enabled(found.is_some()),
                         )
                         .clicked()
                         && let Some(f) = found
@@ -1664,15 +1658,13 @@ impl DesignTab {
                         Some(s) => format!("tuning ×{s:.3}"),
                         None => "tune size to resonance".into(),
                     };
-                    if ui
-                        .add_enabled(self.tune.is_none(), egui::Button::new(action(label)))
-                        .clicked()
+                    if ui.add(Key::new(label).outline(VALUE).enabled(self.tune.is_none())).clicked()
                     {
                         self.start_tune(&ctx);
                     }
                 }
                 let dirty = params.iter().any(|p| (p.val - p.def).abs() > 1e-9);
-                if dirty && ui.button(action("reset to design")).clicked() {
+                if dirty && ui.add(Key::new("reset to design").outline(VALUE)).clicked() {
                     self.overrides.clear();
                     self.edits.clear();
                     self.tune_note = None;
@@ -1697,7 +1689,8 @@ impl DesignTab {
                         self.edits.entry(p.key.clone()).or_insert_with(|| format!("{:.2}", p.val));
                     let edited = (p.val - p.def).abs() > 1e-9;
                     ui.label(if edited { value(&p.name).color(READOUT) } else { legend(&p.name) });
-                    let r = ui.add(egui::TextEdit::singleline(buf).desired_width(80.0));
+                    let reserve = ui.available_width() - 80.0;
+                    let r = field_then(ui, buf, "", reserve, |_| {});
                     if r.lost_focus()
                         || (r.changed() && ui.input(|i| i.key_pressed(egui::Key::Enter)))
                     {
@@ -1802,7 +1795,7 @@ pub fn swr_chart(
         log_y: log,
         y_ticks: ticks,
         x_label: format!("MHz{}", if log { " · log SWR" } else { "" }),
-        rules: vec![(f0, Color32::from_rgb(0x4f, 0xa3, 0xc7))],
+        rules: vec![(f0, TRACE)],
         h_rules: vec![(2.0, READOUT_DIM)],
         marks: best.map(|b| vec![(b.0, b.1, GREEN)]).unwrap_or_default(),
         height: 220.0,

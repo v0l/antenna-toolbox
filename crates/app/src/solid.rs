@@ -151,19 +151,22 @@ impl Solid {
         let mut back = false;
         ui.horizontal(|ui| {
             ui.label(legend("file units"));
-            let name = UNITS.iter().find(|u| u.1 == self.unit).map_or("mm", |u| u.0);
-            egui::ComboBox::from_id_salt("solid-units").selected_text(name).show_ui(ui, |ui| {
-                for (label, scale) in UNITS {
-                    if ui.selectable_label(self.unit == scale, label).clicked()
-                        && self.unit != scale
-                    {
-                        let r = scale / self.unit;
-                        self.feed = self.feed.map(|p| p.map(|v| v * r));
-                        self.unit = scale;
-                    }
-                }
+            let before = self.unit;
+            let mut unit = self.unit;
+            ui.allocate_ui(egui::vec2(90.0, 24.0), |ui| {
+                choice(
+                    ui,
+                    "solid-units",
+                    &mut unit,
+                    UNITS.iter().map(|(label, scale)| (*scale, label.to_string())),
+                );
             });
-            if ui.button(action("back to wires")).clicked() {
+            if unit != before {
+                let r = unit / before;
+                self.feed = self.feed.map(|p| p.map(|v| v * r));
+                self.unit = unit;
+            }
+            if ui.add(Key::new("back to wires").outline(VALUE)).clicked() {
                 back = true;
             }
         });

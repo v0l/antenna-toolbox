@@ -119,10 +119,10 @@ impl Trace {
 
 pub fn defaults() -> [Trace; 4] {
     [
-        Trace::new(Kind::LogMag, Color32::from_rgb(0xE8, 0xD4, 0x4D), true),
-        Trace::new(Kind::Swr, Color32::from_rgb(0x5C, 0xD0, 0xE8), true),
+        Trace::new(Kind::LogMag, READOUT, true),
+        Trace::new(Kind::Swr, TRACE, true),
         Trace::new(Kind::R, Color32::from_rgb(0xD8, 0x6B, 0xD0), false),
-        Trace::new(Kind::X, Color32::from_rgb(0x6F, 0xD1, 0x8A), false),
+        Trace::new(Kind::X, SAFE, false),
     ]
 }
 
@@ -324,21 +324,18 @@ pub fn show(
 pub fn controls(ui: &mut Ui, traces: &mut [Trace], pts: &[Point], z0: f64) {
     egui::Grid::new("traces").num_columns(6).spacing([10.0, 4.0]).show(ui, |ui| {
         for (i, t) in traces.iter_mut().enumerate() {
-            let label = egui::RichText::new(format!("CH{i}"))
-                .font(theme::legend_font(11.0))
-                .color(if t.on { t.colour } else { LEGEND });
-            if ui.add(egui::Button::new(label).selected(t.on)).clicked() {
+            if chip(ui, &format!("CH{i}"), t.colour, t.on).interact(egui::Sense::click()).clicked() {
                 t.on = !t.on;
             }
             let mut kind = t.kind;
-            egui::ComboBox::from_id_salt(("trace-kind", i))
-                .width(90.0)
-                .selected_text(kind.label())
-                .show_ui(ui, |ui| {
-                    for k in Kind::ALL {
-                        ui.selectable_value(&mut kind, k, k.label());
-                    }
-                });
+            ui.allocate_ui(egui::vec2(90.0, 24.0), |ui| {
+                choice(
+                    ui,
+                    ("trace-kind", i),
+                    &mut kind,
+                    Kind::ALL.into_iter().map(|k| (k, k.label().to_string())),
+                );
+            });
             t.set_kind(kind);
             ui.label(legend("per div"));
             let speed = t.per_div * 0.02;
@@ -349,7 +346,7 @@ pub fn controls(ui: &mut Ui, traces: &mut [Trace], pts: &[Point], z0: f64) {
             ui.horizontal(|ui| {
                 let speed = t.per_div * 0.1;
                 ui.add(egui::DragValue::new(&mut t.bottom).speed(speed).max_decimals(3));
-                if ui.small_button("auto").clicked() {
+                if ui.add(Key::new("auto").outline(VALUE)).clicked() {
                     t.fit(pts, z0);
                 }
             });

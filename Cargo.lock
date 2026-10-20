@@ -1043,9 +1043,9 @@ dependencies = [
 
 [[package]]
 name = "egui_bench"
-version = "0.3.0"
+version = "0.5.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d816714add577fe6a942be04a56da13755940cba286e437d0ff7823e5fec355"
+checksum = "a2f3ef265abfbad7b9f98dbe6a9900c09e9a8e56784b0989de540ea963946b6b"
 dependencies = [
  "bytemuck",
  "egui",

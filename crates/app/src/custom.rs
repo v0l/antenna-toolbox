@@ -278,14 +278,14 @@ impl Custom {
         ui.horizontal(|ui| {
             ui.label(legend("ground"));
             let mut g = self.ground;
-            egui::ComboBox::from_id_salt("custom-ground").selected_text(g.label()).show_ui(
-                ui,
-                |ui| {
-                    for (name, preset) in Ground::PRESETS {
-                        ui.selectable_value(&mut g, preset, name);
-                    }
-                },
-            );
+            ui.allocate_ui(egui::vec2(150.0, 24.0), |ui| {
+                choice(
+                    ui,
+                    "custom-ground",
+                    &mut g,
+                    Ground::PRESETS.into_iter().map(|(name, preset)| (preset, name.to_string())),
+                );
+            });
             self.ground = g;
             if let Ground::Real(r) = &mut self.ground {
                 ui.label(legend("εr"));
@@ -348,10 +348,10 @@ impl Custom {
                             self.feed_wire = i;
                         }
                         ui.horizontal(|ui| {
-                            if ui.small_button("copy").clicked() {
+                            if ui.add(Key::new("copy").outline(VALUE)).clicked() {
                                 duplicate = Some(i);
                             }
-                            if ui.small_button("✕").clicked() {
+                            if ui.add(Key::new("✕").outline(VALUE)).clicked() {
                                 remove = Some(i);
                             }
                         });
@@ -371,7 +371,7 @@ impl Custom {
             }
         }
         ui.horizontal(|ui| {
-            if ui.button(action("add wire")).clicked() {
+            if ui.add(Key::new("add wire").outline(VALUE)).clicked() {
                 let last = *self.wires.last().unwrap_or(&Wire {
                     a: [0.0; 3],
                     b: [0.0, 0.0, 100.0],

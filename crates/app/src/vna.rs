@@ -342,23 +342,18 @@ impl VnaTab {
                 }
             }
             ui.horizontal(|ui| {
-                if !web && ui.button(action("rescan")).clicked() {
+                if !web && ui.add(Key::new("rescan").outline(VALUE)).clicked() {
                     self.ports = detect();
                 }
                 match self.link.is_some() {
                     false => {
-                        if ui
-                            .add_enabled(
-                                if web { serial } else { !self.ports.is_empty() },
-                                egui::Button::new(action("connect")),
-                            )
-                            .clicked()
-                        {
+                        let ready = if web { serial } else { !self.ports.is_empty() };
+                        if ui.add(Key::new("connect").solid(READOUT).enabled(ready)).clicked() {
                             self.connect(&ctx);
                         }
                     }
                     true => {
-                        if ui.button(action("disconnect")).clicked() {
+                        if ui.add(Key::new("disconnect").outline(VALUE)).clicked() {
                             self.link = None;
                             self.waiting = false;
                             self.continuous = false;
@@ -409,12 +404,12 @@ impl VnaTab {
             row(ui, "points", |ui| {
                 ui.add(egui::DragValue::new(&mut self.points).range(11..=4001));
             });
-            if ui.button(action("centre on the target, ±10%")).clicked() {
+            if ui.add(Key::new("centre on the target, ±10%").outline(VALUE)).clicked() {
                 self.centre_on_target();
             }
             ui.horizontal(|ui| {
                 let can = self.link.is_some() && !self.waiting;
-                if ui.add_enabled(can, egui::Button::new(action("sweep"))).clicked() {
+                if ui.add(Key::new("sweep").outline(VALUE).enabled(can)).clicked() {
                     self.request();
                 }
                 if toggle(ui, "continuous", self.continuous).clicked() {
@@ -447,7 +442,7 @@ impl VnaTab {
                     let label =
                         if done { format!("{} ✓", std.label()) } else { std.label().to_string() };
                     let can = self.link.is_some() && !self.waiting;
-                    if ui.add_enabled(can, egui::Button::new(action(label))).clicked() {
+                    if ui.add(Key::new(label).outline(VALUE).enabled(can)).clicked() {
                         self.capture = Some(std);
                         self.continuous = false;
                         self.request();
@@ -458,7 +453,7 @@ impl VnaTab {
                 if toggle(ui, "apply", self.use_cal).clicked() {
                     self.use_cal = !self.use_cal;
                 }
-                if ui.button(action("clear")).clicked() {
+                if ui.add(Key::new("clear").outline(VALUE)).clicked() {
                     self.cal = Calibration::default();
                 }
             });
@@ -490,13 +485,12 @@ impl VnaTab {
                 Deembed::Off => {}
                 Deembed::Cable => {
                     row(ui, "type", |ui| {
-                        egui::ComboBox::from_id_salt("vna-cable")
-                            .selected_text(CABLES[self.cable.min(CABLES.len() - 1)].name)
-                            .show_ui(ui, |ui| {
-                                for (i, c) in CABLES.iter().enumerate() {
-                                    ui.selectable_value(&mut self.cable, i, c.name);
-                                }
-                            });
+                        choice(
+                            ui,
+                            "vna-cable",
+                            &mut self.cable,
+                            CABLES.iter().enumerate().map(|(i, c)| (i, c.name.to_string())),
+                        );
                     });
                     row(ui, "length m", |ui| {
                         ui.add(
@@ -521,10 +515,7 @@ impl VnaTab {
                 Deembed::Measured => {
                     let can = self.link.is_some() && !self.waiting;
                     if ui
-                        .add_enabled(
-                            can,
-                            egui::Button::new(action("capture with the far end open")),
-                        )
+                        .add(Key::new("capture with the far end open").outline(VALUE).enabled(can))
                         .clicked()
                     {
                         self.capture_open = true;
@@ -602,7 +593,7 @@ impl VnaTab {
             if toggle(ui, "smith", self.smith).clicked() {
                 self.smith = !self.smith;
             }
-            if ui.button(action("auto scale all")).clicked() {
+            if ui.add(Key::new("auto scale all").outline(VALUE)).clicked() {
                 for t in &mut self.traces {
                     t.fit(&pts, z0);
                 }

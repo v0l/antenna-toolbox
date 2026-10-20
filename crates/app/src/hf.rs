@@ -255,13 +255,11 @@ impl HfPanel {
                     "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov",
                     "Dec",
                 ];
-                egui::ComboBox::from_id_salt("hf-month").selected_text(names[s.month]).show_ui(
+                choice(
                     ui,
-                    |ui| {
-                        for (i, n) in names.iter().enumerate() {
-                            ui.selectable_value(&mut s.month, i, *n);
-                        }
-                    },
+                    "hf-month",
+                    &mut s.month,
+                    names.iter().enumerate().map(|(i, n)| (i, n.to_string())),
                 );
             });
             row_help(
@@ -287,13 +285,11 @@ impl HfPanel {
                 },
             );
             row(ui, "noise", |ui| {
-                egui::ComboBox::from_id_salt("hf-noise").selected_text(s.noise.label()).show_ui(
+                choice(
                     ui,
-                    |ui| {
-                        for n in ManMade::ALL {
-                            ui.selectable_value(&mut s.noise, n, n.label());
-                        }
-                    },
+                    "hf-noise",
+                    &mut s.noise,
+                    ManMade::ALL.into_iter().map(|n| (n, n.label().to_string())),
                 );
             });
         });

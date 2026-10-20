@@ -313,5 +313,5 @@ pub fn polar(
     }
 }
 
-pub const GREEN: Color32 = Color32::from_rgb(0x6f, 0xbf, 0x73);
-pub const GOLD: Color32 = Color32::from_rgb(0xe8, 0xb2, 0x3a);
+pub const GREEN: Color32 = OK;
+pub const GOLD: Color32 = READOUT;

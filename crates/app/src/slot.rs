@@ -99,20 +99,19 @@ impl PatternSlot {
     pub fn ui(&mut self, ui: &mut Ui, id: &str, fixed: &mut f64, freq: f64, aimable: bool) {
         ui.push_id(id, |ui| {
             ui.horizontal(|ui| {
-                if ui.button(action("use design")).clicked() {
+                if ui.add(Key::new("use design").outline(VALUE)).clicked() {
                     self.wants_design = true;
                 }
-                if self.pattern.is_some() && ui.button(action("fixed gain")).clicked() {
+                if self.pattern.is_some() && ui.add(Key::new("fixed gain").outline(VALUE)).clicked() {
                     self.clear();
                 }
             });
             ui.horizontal(|ui| {
-                ui.add(
-                    egui::TextEdit::singleline(&mut self.path)
-                        .hint_text("path to a pattern file")
-                        .desired_width(ui.available_width() - 60.0),
-                );
-                if ui.button(action("load")).clicked() {
+                let mut load = false;
+                field_then(ui, &mut self.path, "path to a pattern file", 90.0, |ui| {
+                    load = ui.add(Key::new("load").outline(VALUE)).clicked();
+                });
+                if load {
                     let path = self.path.trim().to_string();
                     self.load_file(&path);
                 }
