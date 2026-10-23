@@ -5,7 +5,7 @@ members = ["crates/*"]
 [workspace.package]
 version = "0.2.0"
 edition = "2024"
-license = "MIT"
+license = "GPL-3.0-or-later"
 repository = "https://github.com/v0l/antenna-toolbox"
 description = "Antenna modelling, NanoVNA control and radio path planning"
 
