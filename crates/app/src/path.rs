@@ -873,10 +873,10 @@ impl PathTab {
     fn central_body(&mut self, ui: &mut Ui) -> f32 {
         let dropped = ui.ctx().input(|i| i.raw.dropped_files.clone());
         for f in dropped {
-            match (&f.bytes, &f.path) {
-                (Some(b), _) => self.site_pattern.load_text(&f.name, &String::from_utf8_lossy(b)),
-                (None, Some(path)) => self.site_pattern.load_file(&path.display().to_string()),
-                _ => {}
+            let path = f.path().display().to_string();
+            match f.bytes() {
+                Ok(b) => self.site_pattern.load_text(&path, &String::from_utf8_lossy(&b)),
+                Err(_) => self.site_pattern.load_file(&path),
             }
         }
         let freq = self.freq;

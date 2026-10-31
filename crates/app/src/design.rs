@@ -518,15 +518,11 @@ impl DesignTab {
     fn dropped(&mut self, ctx: &egui::Context) {
         let files = ctx.input(|i| i.raw.dropped_files.clone());
         for f in files {
-            let label = f.path.as_ref().map(|p| p.display().to_string()).unwrap_or(f.name.clone());
+            let path = f.path().to_path_buf();
+            let label = path.display().to_string();
             if label.to_ascii_lowercase().ends_with(".stl") {
-                let bytes = match (&f.bytes, &f.path) {
-                    (Some(b), _) => Ok(b.to_vec()),
-                    (None, Some(p)) => std::fs::read(p).map_err(|e| e.to_string()),
-                    _ => continue,
-                };
                 self.custom.path = label;
-                match bytes {
+                match f.bytes() {
                     Ok(b) => self.import_stl(&b),
                     Err(e) => {
                         self.custom.message = Some((false, format!("{}: {e}", self.custom.path)))
@@ -534,18 +530,14 @@ impl DesignTab {
                 }
                 continue;
             }
-            let text = match (&f.bytes, &f.path) {
-                (Some(b), _) => String::from_utf8_lossy(b).into_owned(),
-                (None, Some(p)) => match std::fs::read_to_string(p) {
-                    Ok(t) => t,
-                    Err(e) => {
-                        self.custom.message = Some((false, format!("{}: {e}", p.display())));
-                        continue;
-                    }
-                },
-                _ => continue,
+            let text = match f.bytes() {
+                Ok(b) => String::from_utf8_lossy(&b).into_owned(),
+                Err(e) => {
+                    self.custom.message = Some((false, format!("{}: {e}", path.display())));
+                    continue;
+                }
             };
-            self.custom.path = f.path.map(|p| p.display().to_string()).unwrap_or(f.name);
+            self.custom.path = label;
             self.import_text(&text);
         }
     }

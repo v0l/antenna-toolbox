@@ -167,7 +167,7 @@ impl eframe::App for App {
                 }
                 ui.add_space(20.0);
             });
-            self.page_offset = out.state.offset.y;
+            self.page_offset = out.state.offset().y;
         });
     }
 }
@@ -230,6 +230,7 @@ mod tests {
         h.hover_at(at);
         h.event(egui::Event::MouseWheel {
             unit: egui::MouseWheelUnit::Point,
+            source: egui::MouseWheelSource::Unknown,
             delta: egui::vec2(0.0, dy),
             modifiers: Default::default(),
             phase: egui::TouchPhase::Move,
