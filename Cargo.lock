@@ -180,7 +180,7 @@ dependencies = [
 
 [[package]]
 name = "antenna-designs"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "rayon",
  "sims-antenna",
@@ -188,14 +188,14 @@ dependencies = [
 
 [[package]]
 name = "antenna-rf"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "num-complex",
 ]
 
 [[package]]
 name = "antenna-toolbox"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "antenna-designs",
  "antenna-rf",
@@ -224,7 +224,7 @@ dependencies = [
 
 [[package]]
 name = "antenna-vna"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "num-complex",
  "serialport",

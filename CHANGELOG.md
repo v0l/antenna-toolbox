@@ -6,6 +6,11 @@ All notable changes to Antenna Toolbox are listed here. The format follows
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-11-01
+
+### Fixed
+- Copy and paste work again and links open in the browser, which the egui 0.37 bump had broken.
+
 ## [0.2.1] - 2026-10-31
 
 ### Changed
