@@ -157,6 +157,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+          submodules: recursive
+      - name: Source archive
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          mkdir -p dist-source
+          name=antenna-toolbox-${TAG}-source.tar.gz
+          git ls-files --recurse-submodules -z | tar --null -T - --transform "s,^,antenna-toolbox-${TAG}/," -czf "dist-source/$name"
+          (cd dist-source && sha256sum "$name" > "$name.sha256")
       - name: Release notes
         env:
           TAG: ${{ github.event.inputs.tag || github.ref_name }}
@@ -170,6 +181,7 @@ jobs:
 
       - name: Checksums
         run: |
+          mv dist-source/* dist/
           cd dist
           sha256sum * > SHA256SUMS
 
