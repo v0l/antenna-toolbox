@@ -6,6 +6,12 @@ All notable changes to Antenna Toolbox are listed here. The format follows
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-11-25
+
+### Changed
+- Every release now includes a source archive with its checksum.
+- Uses the shared egui_bench from crates.io.
+
 ## [0.2.2] - 2026-11-01
 
 ### Fixed
